@@ -1,0 +1,23 @@
+{
+  "id": "umzug",
+  "name": "Umzug & Transport",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "lkw",
+  "beschreibung": "Umzugsvolumen, LKW-Ladungen und Tragezeit kalkulieren.",
+  "eingaben": [
+    {"id": "volumen", "label": "Umzugsvolumen", "art": "volumen", "einheit": "m³", "standard": 0},
+    {"id": "gewicht", "label": "Gewicht", "art": "gewicht", "einheit": "t", "standard": 0},
+    {"id": "etage", "label": "Etage", "art": "anzahl", "einheit": "Etage", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "traegerFaktor", "label": "Tragefaktor pro Etage", "einheit": "h", "standard": 0.5}
+  ],
+  "ressourcen": [
+    {"id": "transport", "label": "LKW-Ladungen", "art": "transport", "einheit": "Fahrten", "volumenFormel": "volumen", "gewichtFormel": "gewicht", "volumenProFahrt": 20, "gewichtProFahrt": 1, "preisProFahrt": 220},
+    {"id": "traeger", "label": "Tragezeit", "art": "stunden", "einheit": "h", "formel": "volumen / 4 + etage * traegerFaktor", "preisProEinheit": 35},
+    {"id": "pauschale", "label": "Verpackung", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 60}
+  ],
+  "preise": {"mwst": 19, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Umzug", "mengeLabel": "Volumen", "mengeEinheit": "m³", "mengeFormel": "volumen"}
+}

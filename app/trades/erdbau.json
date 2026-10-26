@@ -1,0 +1,22 @@
+{
+  "id": "erdbau",
+  "name": "Erdbau & Aushub",
+  "gruppe": "Bau & Außen",
+  "icon": "bagger",
+  "beschreibung": "Aushubmengen, Auflockerung und LKW-Fahrten kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Aushubfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "tiefe", "label": "Aushubtiefe", "art": "volumen", "einheit": "m", "standard": 0},
+    {"id": "dichte", "label": "Bodendichte", "art": "anzahl", "einheit": "t/m³", "standard": 1.8, "min": 0.8, "max": 3},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "auflockerung", "label": "Auflockerung", "einheit": "%", "standard": 25, "min": 0, "max": 80}
+  ],
+  "ressourcen": [
+    {"id": "aushub", "label": "Aushub (lose)", "art": "material", "einheit": "m³", "formel": "flaeche * tiefe * (1 + auflockerung / 100)", "preisProEinheit": 0},
+    {"id": "transport", "label": "LKW-Transport", "art": "transport", "einheit": "Fahrten", "volumenFormel": "flaeche * tiefe * (1 + auflockerung / 100)", "gewichtFormel": "flaeche * tiefe * dichte", "volumenProFahrt": 8, "gewichtProFahrt": 12, "preisProFahrt": 180}
+  ],
+  "preise": {"mwst": 19, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Erdbauarbeiten", "mengeLabel": "Aushub", "mengeEinheit": "m³", "mengeFormel": "flaeche * tiefe"}
+}

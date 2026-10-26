@@ -1,0 +1,22 @@
+{
+  "id": "maler",
+  "name": "Maler & Lackierer",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "walze",
+  "beschreibung": "Wände und Decken streichen.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Zu streichende Fläche", "art": "flaeche", "einheit": "m²", "standard": 0, "hilfe": "Türen und Fenster abziehen."},
+    {"id": "anstriche", "label": "Anzahl Anstriche", "art": "anzahl", "einheit": "x", "standard": 2, "min": 1, "max": 5}
+  ],
+  "faktoren": [
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 10, "min": 0, "max": 50},
+    {"id": "ergiebigkeit", "label": "Ergiebigkeit", "einheit": "m²/l", "standard": 10, "min": 1, "max": 50}
+  ],
+  "ressourcen": [
+    {"id": "farbe", "label": "Wandfarbe", "art": "material", "einheit": "l", "formel": "flaeche * anstriche / ergiebigkeit * (1 + verschnitt / 100)", "preisProEinheit": 8.5},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "flaeche / 12", "preisProEinheit": 45},
+    {"id": "abdeckung", "label": "Abdeckmaterial", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 35}
+  ],
+  "preise": {"mindestpreis": 150, "mwst": 19, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Malerarbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

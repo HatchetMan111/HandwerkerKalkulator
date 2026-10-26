@@ -1,6 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { loadPacks } from './trades.js';
 
 export function createServer({ dataDir, appDir, tradesDir }) {
   const startedAt = Date.now();
@@ -14,6 +15,17 @@ export function createServer({ dataDir, appDir, tradesDir }) {
     if (url.pathname === '/api/version') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ version: process.env.APP_VERSION || '1.0.0', schema: 1 }));
+      return;
+    }
+    if (url.pathname === '/api/trades' && req.method === 'GET') {
+      try {
+        const packs = await loadPacks(tradesDir);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(packs));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ fehler: err.message }));
+      }
       return;
     }
     res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
