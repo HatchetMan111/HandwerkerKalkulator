@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { calculate, FormulaError } from './engine.js';
-import { formatNumber, formatCurrency, parseGermanNumber } from './formats.js';
+import { formatNumber, formatCurrency, formatDate, parseGermanNumber } from './formats.js';
 import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement } from './measure.js';
 
 const GROUPS = ['Bau & Außen', 'Ausbau & Hochbau', 'Dienstleistung & Sonstiges'];
@@ -29,7 +29,9 @@ function setActiveNav(route) {
     const target = link.getAttribute('href')?.slice(1) || '/';
     const active = target === '/'
       ? route === '/' || route.startsWith('/kalkulation')
-      : route === target || route.startsWith(`${target}/`);
+      : route === target
+        || route.startsWith(`${target}/`)
+        || (target === '/vorgaenge' && route.startsWith('/vorgang/'));
     link.classList.toggle('is-active', active);
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -623,7 +625,238 @@ function renderResult(container, result) {
     </section>`;
 }
 
-async function renderKalkulation(packId, token) {
+const DRAFT_KEY = 'hk_entwurf';
+const STATUS_LABELS = {
+  entwurf: 'Entwurf',
+  angebot: 'Angebot',
+  auftragsbestaetigung: 'Auftragsbestätigung',
+  rechnung: 'Rechnung',
+  bezahlt: 'Bezahlt',
+  storniert: 'Storniert',
+};
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || 'Entwurf';
+}
+
+function readDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw);
+    return draft && draft.packId && draft.state ? draft : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(payload) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+  } catch {
+    // Lokaler Speicher kann im privaten Modus gesperrt sein.
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Siehe writeDraft.
+  }
+}
+
+function draftTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'unbekannter Zeit';
+  return date.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function applyJobState(state, job) {
+  for (const scope of ['eingaben', 'faktoren', 'preise']) {
+    const values = job?.[scope];
+    if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+    for (const [id, value] of Object.entries(values)) {
+      if (Object.prototype.hasOwnProperty.call(state[scope], id)) state[scope][id] = value;
+    }
+  }
+  return state;
+}
+
+function applyDraftToForm(form, state, draft, titleInput) {
+  for (const scope of ['eingaben', 'faktoren', 'preise']) {
+    const values = draft.state?.[scope];
+    if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+    for (const [id, value] of Object.entries(values)) {
+      const el = [...form.querySelectorAll(`[data-scope="${scope}"]`)].find((entry) => entry.dataset.id === id);
+      if (!el) continue;
+      el.value = el.tagName === 'SELECT' ? value : inputValue(value);
+      state[scope][id] = value;
+    }
+  }
+  if (draft.titel) titleInput.value = draft.titel;
+}
+
+function jobRow(job) {
+  const title = job.titel || job.gewerkName || job.gewerkId || 'Ohne Titel';
+  const gewerk = job.gewerkName || job.gewerkId || 'Gewerk';
+  const status = job.status || 'entwurf';
+  const total = Number(job.summen?.gesamt);
+  const search = normalise(`${title} ${gewerk} ${job.kunde || ''} ${job.baustelle || ''} ${statusLabel(status)}`);
+  const statusClass = String(status).replace(/[^a-z0-9_-]/gi, '');
+  return `
+    <article class="job-row" data-job data-status="${escapeHtml(status)}" data-search="${escapeHtml(search)}">
+      <div class="job-row__main">
+        <div class="job-row__meta">
+          <span class="status status--${escapeHtml(statusClass)}">${escapeHtml(statusLabel(status))}</span>
+          <span>${escapeHtml(gewerk)}</span>
+          <span>${formatDate(job.updatedAt || job.createdAt)}</span>
+        </div>
+        <h2><a href="#/vorgang/${encodeURIComponent(job.id)}">${escapeHtml(title)}</a></h2>
+        <p>${Number.isFinite(total) ? formatCurrency(total) : 'Noch kein Betrag'}${job.kunde ? ` · ${escapeHtml(job.kunde)}` : ''}</p>
+      </div>
+      <div class="job-row__actions">
+        <a class="button button--ghost button--compact" href="#/vorgang/${encodeURIComponent(job.id)}">Öffnen</a>
+        <button class="button button--ghost button--compact" type="button" data-duplicate="${escapeHtml(job.id)}">Duplizieren</button>
+        <button class="button button--ghost button--compact button--danger" type="button" data-delete="${escapeHtml(job.id)}">Löschen</button>
+      </div>
+    </article>`;
+}
+
+async function renderVorgaenge(token) {
+  app.innerHTML = `
+    <section class="page-head">
+      <p class="eyebrow">Vorgänge</p>
+      <div class="page-head__row">
+        <div>
+          <h1>Vorgänge</h1>
+          <p class="lead">Kalkulationen speichern, wiederfinden und als Grundlage für Angebote nutzen.</p>
+        </div>
+        <a class="button button--primary" href="#/">Neue Kalkulation</a>
+      </div>
+    </section>
+    <p class="job-feedback" id="job-feedback" role="status"></p>
+    <div id="job-list" aria-live="polite"><p class="muted">Vorgänge werden geladen …</p></div>`;
+
+  const jobs = await api.get('/api/jobs');
+  if (token !== renderToken) return;
+
+  const container = document.getElementById('job-list');
+  if (!container) return;
+  if (!Array.isArray(jobs) || jobs.length === 0) {
+    container.innerHTML = `
+      <section class="state">
+        <p class="eyebrow">Noch leer</p>
+        <h2>Der erste Vorgang wartet.</h2>
+        <p>Starte eine Kalkulation und speichere sie als Vorgang.</p>
+        <a class="button button--primary" href="#/">Gewerk wählen</a>
+      </section>`;
+    return;
+  }
+
+  const sorted = [...jobs].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+  const statuses = [...new Set(sorted.map((job) => job.status || 'entwurf'))];
+  const options = statuses.map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</option>`).join('');
+
+  container.innerHTML = `
+    <div class="list-tools">
+      <label class="search">
+        <span class="search__label">Vorgang suchen</span>
+        <input id="job-search" type="search" placeholder="Titel, Gewerk oder Kunde" autocomplete="off">
+      </label>
+      <label class="filter">
+        <span class="filter__label">Status</span>
+        <select id="job-status">
+          <option value="">Alle</option>
+          ${options}
+        </select>
+      </label>
+    </div>
+    <p class="list-summary" id="job-summary"></p>
+    <div class="job-list" data-job-list>
+      ${sorted.map(jobRow).join('')}
+    </div>
+    <p class="job-empty" data-job-empty hidden>Kein Vorgang passt zur Suche.</p>`;
+
+  const search = document.getElementById('job-search');
+  const statusSelect = document.getElementById('job-status');
+  const summary = document.getElementById('job-summary');
+  const empty = container.querySelector('[data-job-empty]');
+  const list = container.querySelector('[data-job-list]');
+
+  const filterJobs = () => {
+    const query = normalise(search?.value);
+    const status = statusSelect?.value || '';
+    let visible = 0;
+    list.querySelectorAll('[data-job]').forEach((row) => {
+      const matchesQuery = !query || normalise(row.dataset.search).includes(query);
+      const matchesStatus = !status || row.dataset.status === status;
+      row.hidden = !(matchesQuery && matchesStatus);
+      if (!row.hidden) visible += 1;
+    });
+    if (summary) summary.textContent = `${visible} von ${sorted.length} ${sorted.length === 1 ? 'Vorgang' : 'Vorgängen'}`;
+    if (empty) empty.hidden = visible > 0;
+  };
+
+  const feedback = (message, type = 'error') => {
+    const el = document.getElementById('job-feedback');
+    if (!el) return;
+    el.textContent = message;
+    el.dataset.type = type;
+  };
+
+  search?.addEventListener('input', filterJobs);
+  statusSelect?.addEventListener('change', filterJobs);
+
+  list.addEventListener('click', async (event) => {
+    const duplicate = event.target.closest('[data-duplicate]');
+    if (duplicate) {
+      const id = duplicate.dataset.duplicate;
+      const source = sorted.find((job) => job.id === id);
+      if (!source) return;
+      duplicate.disabled = true;
+      try {
+        const copy = { ...source };
+        delete copy.id;
+        delete copy.createdAt;
+        delete copy.updatedAt;
+        delete copy.status;
+        for (const key of Object.keys(copy)) {
+          if (/nummer/i.test(key)) delete copy[key];
+        }
+        await api.post('/api/jobs', { ...copy, titel: `${source.titel || source.gewerkName || 'Vorgang'} (Kopie)` });
+        if (token !== renderToken) return;
+        await renderVorgaenge(token);
+      } catch (err) {
+        duplicate.disabled = false;
+        feedback(err.message || 'Der Vorgang konnte nicht dupliziert werden.');
+      }
+      return;
+    }
+
+    const remove = event.target.closest('[data-delete]');
+    if (remove) {
+      const id = remove.dataset.delete;
+      const source = sorted.find((job) => job.id === id);
+      if (!source) return;
+      const title = source.titel || source.gewerkName || 'Vorgang';
+      if (!window.confirm(`Vorgang „${title}“ wirklich löschen?`)) return;
+      remove.disabled = true;
+      try {
+        await api.del(`/api/jobs/${encodeURIComponent(id)}`);
+        if (token !== renderToken) return;
+        await renderVorgaenge(token);
+      } catch (err) {
+        remove.disabled = false;
+        feedback(err.message || 'Der Vorgang konnte nicht gelöscht werden.');
+      }
+    }
+  });
+
+  filterJobs();
+}
+
+async function renderKalkulation(packId, token, job = null) {
   const packs = await api.get('/api/trades');
   if (token !== renderToken) return;
   const pack = packs.find((entry) => entry.id === packId);
@@ -632,7 +865,11 @@ async function renderKalkulation(packId, token) {
     return;
   }
 
+  let currentJob = job;
   const state = createCalcState(pack);
+  if (currentJob) applyJobState(state, currentJob);
+  const draft = readDraft();
+  const canOfferDraft = Boolean(draft && draft.packId === pack.id && (!draft.jobId || draft.jobId === currentJob?.id));
   const anfahrtInput = (pack.eingaben || []).find((input) => input.id === 'anfahrtKm');
   const anfahrtFeld = anfahrtInput || {
     id: 'anfahrtKm',
@@ -653,10 +890,32 @@ async function renderKalkulation(packId, token) {
   app.innerHTML = `
     <section class="calc-head">
       <a class="back-link" href="#/">← Alle Gewerke</a>
-      <p class="eyebrow">${escapeHtml(pack.gruppe || 'Kalkulation')}</p>
+      <p class="eyebrow">${currentJob ? 'Vorgang bearbeiten' : escapeHtml(pack.gruppe || 'Kalkulation')}</p>
       <h1>${escapeHtml(pack.name)}</h1>
       <p class="lead">${escapeHtml(pack.beschreibung || 'Mengen eingeben, Preise prüfen, Ergebnis sehen.')}</p>
     </section>
+    <div class="draft-banner" id="draft-banner" hidden>
+      <div class="draft-banner__copy">
+        <strong>Entwurf gefunden</strong>
+        <span data-draft-info></span>
+      </div>
+      <div class="draft-banner__actions">
+        <button class="button button--primary button--compact" type="button" data-draft-restore>Wiederherstellen</button>
+        <button class="button button--ghost button--compact" type="button" data-draft-discard>Verwerfen</button>
+      </div>
+    </div>
+    <div class="calc-actions">
+      <label class="job-title">
+        <span>Vorgangstitel</span>
+        <input type="text" data-job-title value="${escapeHtml(currentJob?.titel || pack.name)}" placeholder="${escapeHtml(pack.name)}" autocomplete="off">
+      </label>
+      <div class="calc-actions__buttons">
+        <button class="button button--primary" type="button" data-save-job>${currentJob ? 'Aktualisieren' : 'Speichern'}</button>
+        <a class="button button--ghost" href="#/vorgaenge">Vorgangsliste</a>
+      </div>
+      <p class="save-status" data-save-status role="status"></p>
+      <p class="calc-actions__hint">Der offene Entwurf wird automatisch lokal gesichert.</p>
+    </div>
     <div class="calc-layout">
       <form class="calc-form" id="calc-form" novalidate>
         <section class="panel">
@@ -693,6 +952,32 @@ async function renderKalkulation(packId, token) {
 
   const form = document.getElementById('calc-form');
   const result = document.getElementById('calc-result');
+  const titleInput = document.querySelector('[data-job-title]');
+  const saveButton = document.querySelector('[data-save-job]');
+  const saveStatus = document.querySelector('[data-save-status]');
+  let hasInteracted = false;
+
+  const setSaveStatus = (message, type = '') => {
+    if (!saveStatus) return;
+    saveStatus.textContent = message;
+    saveStatus.dataset.type = type;
+  };
+
+  const persistDraft = () => {
+    if (!hasInteracted) return;
+    writeDraft({
+      packId: pack.id,
+      jobId: currentJob?.id || null,
+      titel: titleInput?.value || pack.name,
+      state: {
+        eingaben: { ...state.eingaben },
+        faktoren: { ...state.faktoren },
+        preise: { ...state.preise },
+      },
+      savedAt: new Date().toISOString(),
+    });
+  };
+
   const recalc = () => {
     if (!syncState(form, state)) {
       showResultMessage(result, 'Bitte korrigiere die markierten Felder.');
@@ -700,13 +985,32 @@ async function renderKalkulation(packId, token) {
     }
     try {
       renderResult(result, calculate(pack, state));
+      persistDraft();
     } catch (err) {
       showResultMessage(result, err instanceof FormulaError ? err.message : 'Die Berechnung ist nicht möglich.');
     }
   };
 
-  form.addEventListener('input', recalc);
-  form.addEventListener('change', recalc);
+  const markInteraction = () => {
+    hasInteracted = true;
+    if (saveStatus?.dataset.type === 'success') {
+      saveStatus.textContent = 'Ungespeicherte Änderungen.';
+      saveStatus.dataset.type = '';
+    }
+  };
+
+  form.addEventListener('input', () => {
+    markInteraction();
+    recalc();
+  });
+  form.addEventListener('change', () => {
+    markInteraction();
+    recalc();
+  });
+  titleInput?.addEventListener('input', () => {
+    markInteraction();
+    persistDraft();
+  });
   form.addEventListener('submit', (event) => event.preventDefault());
   form.addEventListener('click', (event) => {
     const modeButton = event.target.closest('[data-measure-mode]');
@@ -719,6 +1023,75 @@ async function renderKalkulation(packId, token) {
   form.addEventListener('toggle', (event) => {
     if (event.target.matches?.('[data-measure]') && !event.target.open) stopMeasure();
   }, true);
+
+  const draftBanner = document.getElementById('draft-banner');
+  if (canOfferDraft && draftBanner) {
+    draftBanner.hidden = false;
+    const info = draftBanner.querySelector('[data-draft-info]');
+    if (info) info.textContent = `Gesichert am ${draftTime(draft.savedAt)}.`;
+    draftBanner.querySelector('[data-draft-restore]')?.addEventListener('click', () => {
+      applyDraftToForm(form, state, draft, titleInput);
+      hasInteracted = true;
+      draftBanner.hidden = true;
+      setSaveStatus('Entwurf wiederhergestellt.', 'success');
+      recalc();
+    });
+    draftBanner.querySelector('[data-draft-discard]')?.addEventListener('click', () => {
+      clearDraft();
+      draftBanner.hidden = true;
+      setSaveStatus('Entwurf verworfen.');
+    });
+  }
+
+  saveButton?.addEventListener('click', async () => {
+    if (!syncState(form, state)) {
+      showResultMessage(result, 'Bitte korrigiere die markierten Felder.');
+      setSaveStatus('Bitte Eingaben prüfen.', 'error');
+      return;
+    }
+
+    let snapshot;
+    try {
+      snapshot = calculate(pack, state);
+    } catch (err) {
+      setSaveStatus(err instanceof FormulaError ? err.message : 'Die Berechnung ist nicht möglich.', 'error');
+      return;
+    }
+
+    saveButton.disabled = true;
+    setSaveStatus('Speichern …');
+    const payload = {
+      titel: titleInput?.value.trim() || pack.name,
+      gewerkId: pack.id,
+      gewerkName: pack.name,
+      eingaben: { ...state.eingaben },
+      faktoren: { ...state.faktoren },
+      preise: { ...state.preise },
+      positionen: snapshot.positionen,
+      summen: snapshot.summen,
+    };
+
+    try {
+      const saved = currentJob
+        ? await api.put(`/api/jobs/${encodeURIComponent(currentJob.id)}`, payload)
+        : await api.post('/api/jobs', payload);
+      if (token !== renderToken) return;
+      currentJob = saved;
+      clearDraft();
+      saveButton.textContent = 'Aktualisieren';
+      if (saveStatus) {
+        saveStatus.innerHTML = 'Gespeichert. <a href="#/vorgaenge">Zur Vorgangsliste</a>';
+        saveStatus.dataset.type = 'success';
+      }
+      history.replaceState(null, '', `#/vorgang/${encodeURIComponent(saved.id)}`);
+      setActiveNav(`/vorgang/${saved.id}`);
+    } catch (err) {
+      setSaveStatus(err.message || 'Der Vorgang konnte nicht gespeichert werden.', 'error');
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+
   recalc();
 }
 
@@ -764,9 +1137,34 @@ async function router() {
       if (packId) await renderKalkulation(packId, token);
       else placeholder('Kalkulation', 'Bitte wähle ein Gewerk aus.');
     } else if (route === '/vorgaenge') {
-      placeholder('Vorgänge', 'Die Vorgangsliste wird im nächsten Schritt ausgebaut.');
-    } else if (route.startsWith('/vorgang/')) {
-      placeholder('Vorgang', 'Die Vorgangsdetails werden im nächsten Schritt ausgebaut.');
+      await renderVorgaenge(token);
+    } else if (/^\/vorgang\/[^/]+$/.test(route)) {
+      let id = '';
+      try {
+        id = decodeURIComponent(route.slice('/vorgang/'.length));
+      } catch {
+        id = '';
+      }
+      if (!id) {
+        placeholder('Vorgang nicht gefunden', 'Dieser Vorgang existiert nicht.');
+      } else {
+        let job;
+        try {
+          job = await api.get(`/api/jobs/${encodeURIComponent(id)}`);
+        } catch (err) {
+          if (err.status === 404) {
+            placeholder('Vorgang nicht gefunden', 'Dieser Vorgang existiert nicht oder wurde gelöscht.');
+            return;
+          }
+          throw err;
+        }
+        if (token !== renderToken) return;
+        if (!job.gewerkId) {
+          placeholder('Vorgang ohne Gewerk', 'Diesem Vorgang ist kein Gewerk zugeordnet.');
+          return;
+        }
+        await renderKalkulation(job.gewerkId, token, job);
+      }
     } else if (route === '/preislisten') {
       placeholder('Preislisten', 'Preislisten werden im nächsten Schritt ausgebaut.');
     } else if (route === '/vorlagen') {
