@@ -215,7 +215,7 @@ Regeln:
 
 - `id` ist eindeutig, kleingeschrieben, ohne Umlaute.
 - Jede Ressource hat `art`, `label`, `einheit` und eine `formel` (bzw. typspezifische Formeln); `pauschal` benötigt keine Formel.
-- Formeln dürfen nur deklarierte Eingaben, Faktoren, Ressourcen und die Funktionen aus Abschnitt 8.4 referenzieren.
+- Formeln dürfen nur deklarierte Eingaben, Faktoren und die Funktionen aus Abschnitt 8.4 referenzieren.
 - Preise sind Netto-Einzelpreise in Euro; MwSt. wird erst in der Summe angewandt.
 
 ## 8. Rechenkern
