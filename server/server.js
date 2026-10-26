@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadPacks } from './trades.js';
 import { createStore } from './store.js';
+import { naechsteNummer } from './numbering.js';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -40,6 +41,51 @@ export function createServer({ dataDir, appDir, tradesDir }) {
   function send(res, status, data) {
     res.writeHead(status, JSON_HEADERS);
     res.end(status === 204 ? undefined : JSON.stringify(data));
+  }
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function mergeById(existing, incoming) {
+    const result = [...existing];
+    for (const item of incoming) {
+      const idx = item.id ? result.findIndex((entry) => entry.id === item.id) : -1;
+      if (idx >= 0) result[idx] = { ...result[idx], ...item };
+      else result.push(item);
+    }
+    return result;
+  }
+
+  function validateBundle(bundle) {
+    if (!isPlainObject(bundle)) {
+      throw Object.assign(new Error('Bundle muss ein Objekt sein'), { status: 400 });
+    }
+    const arrays = ['jobs', 'presets', 'pricelists'];
+    for (const key of arrays) {
+      if (!Array.isArray(bundle[key])) {
+        throw Object.assign(new Error(`Bundle: ${key} muss ein Array sein`), { status: 400 });
+      }
+      if (!bundle[key].every(isPlainObject)) {
+        throw Object.assign(new Error(`Bundle: ${key} enthält ungültige Einträge`), { status: 400 });
+      }
+    }
+    if (!isPlainObject(bundle.settings)) {
+      throw Object.assign(new Error('Bundle: settings muss ein Objekt sein'), { status: 400 });
+    }
+    return { jobs: bundle.jobs, presets: bundle.presets, pricelists: bundle.pricelists, settings: bundle.settings };
+  }
+
+  let nummernQueue = Promise.resolve();
+  function reserviereNummer(art) {
+    const run = async () => {
+      const meta = await store.read('meta', { schema: 1, nummern: { angebot: 1, rechnung: 1 } });
+      const result = naechsteNummer(meta, art);
+      await store.write('meta', result.meta);
+      return { nummer: result.nummer, jahr: result.jahr, zaehler: result.zaehler };
+    };
+    nummernQueue = nummernQueue.then(run, run);
+    return nummernQueue;
   }
 
   return http.createServer(async (req, res) => {
@@ -130,6 +176,100 @@ export function createServer({ dataDir, appDir, tradesDir }) {
           send(res, 204);
           return;
         }
+      }
+
+      const collection = url.pathname.match(/^\/api\/(presets|pricelists|settings)$/);
+      if (collection) {
+        await ensureReady();
+        const name = collection[1];
+        if (req.method === 'GET') {
+          send(res, 200, await store.read(name, name === 'settings' ? {} : []));
+          return;
+        }
+        if (req.method === 'PUT') {
+          const body = await jsonBody(req);
+          if (name === 'settings') {
+            if (!isPlainObject(body)) {
+              throw Object.assign(new Error('Einstellungen müssen ein Objekt sein'), { status: 400 });
+            }
+          } else if (!Array.isArray(body)) {
+            throw Object.assign(new Error(`${name} muss ein Array sein`), { status: 400 });
+          }
+          await store.write(name, body);
+          send(res, 200, body);
+          return;
+        }
+      }
+
+      const nummerMatch = url.pathname.match(/^\/api\/nummern\/([^/]+)$/);
+      if (nummerMatch) {
+        await ensureReady();
+        if (req.method !== 'POST') {
+          send(res, 405, { fehler: 'Methode nicht erlaubt' });
+          return;
+        }
+        const art = decodeURIComponent(nummerMatch[1]);
+        if (art !== 'angebot' && art !== 'rechnung') {
+          send(res, 400, { fehler: 'Unbekannte Nummernart', feld: 'art' });
+          return;
+        }
+        send(res, 200, await reserviereNummer(art));
+        return;
+      }
+
+      if (url.pathname === '/api/export' && req.method === 'GET') {
+        await ensureReady();
+        const [jobs, presets, pricelists, settings] = await Promise.all([
+          store.read('jobs', []),
+          store.read('presets', []),
+          store.read('pricelists', []),
+          store.read('settings', {}),
+        ]);
+        send(res, 200, {
+          schema: 1,
+          exportiertAm: new Date().toISOString(),
+          jobs,
+          presets,
+          pricelists,
+          settings,
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/import' && req.method === 'POST') {
+        await ensureReady();
+        const body = await jsonBody(req);
+        if (!isPlainObject(body)) {
+          throw Object.assign(new Error('Import muss ein Objekt sein'), { status: 400 });
+        }
+        const { modus, bundle } = body;
+        if (modus !== 'merge' && modus !== 'ersetzen') {
+          throw Object.assign(new Error('Unbekannter Importmodus'), { status: 400, feld: 'modus' });
+        }
+        const valid = validateBundle(bundle);
+        if (modus === 'ersetzen') {
+          await Promise.all([
+            store.write('jobs', valid.jobs),
+            store.write('presets', valid.presets),
+            store.write('pricelists', valid.pricelists),
+            store.write('settings', valid.settings),
+          ]);
+        } else {
+          const [jobs, presets, pricelists, settings] = await Promise.all([
+            store.read('jobs', []),
+            store.read('presets', []),
+            store.read('pricelists', []),
+            store.read('settings', {}),
+          ]);
+          await Promise.all([
+            store.write('jobs', mergeById(jobs, valid.jobs)),
+            store.write('presets', mergeById(presets, valid.presets)),
+            store.write('pricelists', mergeById(pricelists, valid.pricelists)),
+            store.write('settings', { ...settings, ...valid.settings }),
+          ]);
+        }
+        send(res, 200, { ok: true, modus });
+        return;
       }
 
       send(res, 404, { fehler: 'Nicht gefunden' });
