@@ -149,3 +149,17 @@ test('Export und Import Roundtrip', async () => {
     await rm(second.dir, { recursive: true, force: true });
   }
 });
+
+test('GET / liefert die App-Shell und blockt Traversal', async () => {
+  const api = await startApi();
+  try {
+    const res = await fetch(`${api.base}/`);
+    assert.equal(res.status, 200);
+    assert.match(await res.text(), /<main id="app">/);
+    assert.equal((await fetch(`${api.base}/../package.json`)).status, 404);
+    assert.equal((await fetch(`${api.base}/..%2fpackage.json`)).status, 403);
+  } finally {
+    await stop(api.server);
+    await rm(api.dir, { recursive: true, force: true });
+  }
+});

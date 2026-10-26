@@ -1,10 +1,25 @@
 import http from 'node:http';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadPacks } from './trades.js';
 import { createStore } from './store.js';
 import { naechsteNummer } from './numbering.js';
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+};
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -41,6 +56,50 @@ export function createServer({ dataDir, appDir, tradesDir }) {
   function send(res, status, data) {
     res.writeHead(status, JSON_HEADERS);
     res.end(status === 204 ? undefined : JSON.stringify(data));
+  }
+
+  const appRoot = path.resolve(appDir);
+
+  async function serveStatic(req, res, pathname) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Methode nicht erlaubt');
+      return;
+    }
+    let decoded;
+    try {
+      decoded = decodeURIComponent(pathname);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Ungültige Adresse');
+      return;
+    }
+    if (decoded.includes('\0') || decoded.includes('\\')) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Verboten');
+      return;
+    }
+    const rel = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
+    const target = path.resolve(appRoot, rel);
+    if (target !== appRoot && !target.startsWith(appRoot + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Verboten');
+      return;
+    }
+    try {
+      const data = await readFile(target);
+      res.writeHead(200, {
+        'Content-Type': MIME[path.extname(target).toLowerCase()] || 'application/octet-stream',
+        'Content-Length': data.length,
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'X-Frame-Options': 'DENY',
+      });
+      res.end(req.method === 'HEAD' ? undefined : data);
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Nicht gefunden');
+    }
   }
 
   function isPlainObject(value) {
@@ -272,7 +331,11 @@ export function createServer({ dataDir, appDir, tradesDir }) {
         return;
       }
 
-      send(res, 404, { fehler: 'Nicht gefunden' });
+      if (url.pathname.startsWith('/api/')) {
+        send(res, 404, { fehler: 'Nicht gefunden' });
+        return;
+      }
+      await serveStatic(req, res, url.pathname);
     } catch (err) {
       if (res.headersSent) {
         res.destroy();
