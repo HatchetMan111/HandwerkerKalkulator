@@ -675,6 +675,112 @@ select.field__input {
   margin: 0;
 }
 
+.measure {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.measure summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.measure__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+}
+
+.chip {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  background: var(--bg-soft);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.measure__panel {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-soft);
+}
+
+.measure__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.measure__field {
+  display: grid;
+  gap: 5px;
+}
+
+.measure__field .field__input {
+  min-height: 40px;
+  padding-right: 44px;
+  font-size: 0.88rem;
+}
+
+.measure__footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.measure__footer .button {
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 0.82rem;
+}
+
+.measure__readout {
+  margin: 0 0 10px;
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.measure__message {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.measure__message[data-type="error"] {
+  color: var(--danger);
+}
+
+.measure__message[data-type="success"] {
+  color: var(--success);
+}
+
 .calc-result {
   position: sticky;
   top: 96px;
@@ -879,7 +985,8 @@ select.field__input {
   }
 
   .fields,
-  .fields--three {
+  .fields--three,
+  .measure__grid {
     grid-template-columns: 1fr;
   }
 

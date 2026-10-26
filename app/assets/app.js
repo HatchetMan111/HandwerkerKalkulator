@@ -1,11 +1,13 @@
 import { api } from './api.js';
 import { calculate, FormulaError } from './engine.js';
 import { formatNumber, formatCurrency, parseGermanNumber } from './formats.js';
+import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement } from './measure.js';
 
 const GROUPS = ['Bau & Außen', 'Ausbau & Hochbau', 'Dienstleistung & Sonstiges'];
 const app = document.getElementById('app');
 app.tabIndex = -1;
 let renderToken = 0;
+let measureCleanup = null;
 
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
@@ -136,6 +138,317 @@ async function renderHome(token) {
   });
 }
 
+function getSpeechRecognition() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function stopMeasure() {
+  if (!measureCleanup) return;
+  const cleanup = measureCleanup;
+  measureCleanup = null;
+  try {
+    cleanup();
+  } catch {
+    // Der Assistent ist bereits beendet.
+  }
+}
+
+function setMeasureMessage(details, text, type = 'info') {
+  const message = details.querySelector('[data-measure-message]');
+  if (!message) return;
+  message.textContent = text;
+  message.dataset.type = type;
+}
+
+function measureInput(name, label, unit = 'm') {
+  return `
+    <label class="measure__field">
+      <span class="field__label">${escapeHtml(label)}</span>
+      <span class="field__control">
+        <input class="field__input" type="text" inputmode="decimal" autocomplete="off" data-measure-input="${name}">
+        <span class="field__unit">${escapeHtml(unit)}</span>
+      </span>
+    </label>`;
+}
+
+function measureAssistant(fieldId) {
+  const speech = Boolean(getSpeechRecognition());
+  return `
+    <details class="measure" data-measure data-target="${escapeHtml(fieldId)}">
+      <summary>Maß-Assistent</summary>
+      <div class="measure__actions">
+        <button type="button" class="chip" data-measure-mode="rectangle">Rechteck</button>
+        <button type="button" class="chip" data-measure-mode="lshape">L-Form</button>
+        <button type="button" class="chip" data-measure-mode="triangle">Dreieck</button>
+        <button type="button" class="chip" data-measure-mode="gps">GPS</button>
+        ${speech ? '<button type="button" class="chip" data-measure-mode="speech">Diktieren</button>' : ''}
+      </div>
+      <div class="measure__panel" data-measure-panel hidden></div>
+    </details>`;
+}
+
+function readMeasure(panel, name) {
+  const input = panel.querySelector(`[data-measure-input="${name}"]`);
+  return input ? parseGermanNumber(input.value) : null;
+}
+
+function applyMeasuredArea(details, area, source = '') {
+  const target = document.getElementById(details.dataset.target);
+  if (!target) {
+    setMeasureMessage(details, 'Das Zielfeld wurde nicht gefunden.', 'error');
+    return;
+  }
+  const value = Math.round(Number(area) * 100) / 100;
+  if (!(value > 0)) {
+    setMeasureMessage(details, 'Die Fläche muss größer als 0 sein.', 'error');
+    return;
+  }
+  target.value = String(value).replace('.', ',');
+  target.dispatchEvent(new Event('input', { bubbles: true }));
+  target.focus({ preventScroll: true });
+  setMeasureMessage(details, `${source ? `${source}: ` : ''}${formatNumber(value, 2)} m² übernommen.`, 'success');
+}
+
+function geoErrorMessage(error) {
+  if (error?.code === 1) return 'Standortfreigabe wurde abgelehnt.';
+  if (error?.code === 2) return 'Standort ist gerade nicht verfügbar.';
+  if (error?.code === 3) return 'Die Standortabfrage hat zu lange gedauert.';
+  return 'Standort konnte nicht ermittelt werden.';
+}
+
+function openMeasurePanel(details, mode) {
+  const panel = details.querySelector('[data-measure-panel]');
+  if (!panel) return;
+  stopMeasure();
+  panel.hidden = false;
+
+  if (mode === 'rectangle') {
+    panel.innerHTML = `
+      <div class="measure__grid">
+        ${measureInput('laenge', 'Länge')}
+        ${measureInput('breite', 'Breite')}
+      </div>
+      <div class="measure__footer">
+        <button type="button" class="button button--primary" data-measure-apply>Fläche übernehmen</button>
+        <p class="measure__message" data-measure-message role="status"></p>
+      </div>`;
+    panel.querySelector('[data-measure-apply]').addEventListener('click', () => {
+      const laenge = readMeasure(panel, 'laenge');
+      const breite = readMeasure(panel, 'breite');
+      if (!(laenge > 0) || !(breite > 0)) {
+        setMeasureMessage(details, 'Bitte Länge und Breite größer als 0 eingeben.', 'error');
+        return;
+      }
+      applyMeasuredArea(details, rectangleArea(laenge, breite), 'Rechteck');
+    });
+    panel.querySelector('[data-measure-input="laenge"]')?.focus();
+    return;
+  }
+
+  if (mode === 'lshape') {
+    panel.innerHTML = `
+      <div class="measure__grid">
+        ${measureInput('aussenLaenge', 'Gesamtlänge')}
+        ${measureInput('aussenBreite', 'Gesamtbreite')}
+        ${measureInput('aussenAussparungLaenge', 'Aussparung Länge')}
+        ${measureInput('aussenAussparungBreite', 'Aussparung Breite')}
+      </div>
+      <div class="measure__footer">
+        <button type="button" class="button button--primary" data-measure-apply>Fläche übernehmen</button>
+        <p class="measure__message" data-measure-message role="status"></p>
+      </div>`;
+    panel.querySelector('[data-measure-apply]').addEventListener('click', () => {
+      const a = readMeasure(panel, 'aussenLaenge');
+      const b = readMeasure(panel, 'aussenBreite');
+      const c = readMeasure(panel, 'aussenAussparungLaenge');
+      const d = readMeasure(panel, 'aussenAussparungBreite');
+      if (!(a > 0) || !(b > 0) || !(c >= 0) || !(d >= 0)) {
+        setMeasureMessage(details, 'Bitte alle vier Maße als Zahl eingeben.', 'error');
+        return;
+      }
+      if (c * d >= a * b) {
+        setMeasureMessage(details, 'Die Aussparung muss kleiner als die Gesamtfläche sein.', 'error');
+        return;
+      }
+      applyMeasuredArea(details, lShapeArea(a, b, c, d), 'L-Form');
+    });
+    panel.querySelector('[data-measure-input="aussenLaenge"]')?.focus();
+    return;
+  }
+
+  if (mode === 'triangle') {
+    panel.innerHTML = `
+      <div class="measure__grid">
+        ${measureInput('grundseite', 'Grundseite')}
+        ${measureInput('hoehe', 'Höhe')}
+      </div>
+      <div class="measure__footer">
+        <button type="button" class="button button--primary" data-measure-apply>Fläche übernehmen</button>
+        <p class="measure__message" data-measure-message role="status"></p>
+      </div>`;
+    panel.querySelector('[data-measure-apply]').addEventListener('click', () => {
+      const grundseite = readMeasure(panel, 'grundseite');
+      const hoehe = readMeasure(panel, 'hoehe');
+      if (!(grundseite > 0) || !(hoehe > 0)) {
+        setMeasureMessage(details, 'Bitte Grundseite und Höhe größer als 0 eingeben.', 'error');
+        return;
+      }
+      applyMeasuredArea(details, triangleArea(grundseite, hoehe), 'Dreieck');
+    });
+    panel.querySelector('[data-measure-input="grundseite"]')?.focus();
+    return;
+  }
+
+  if (mode === 'gps') {
+    panel.innerHTML = `
+      <p class="measure__readout" data-gps-status>Starte die Aufzeichnung und laufe die Fläche einmal ab.</p>
+      <div class="measure__actions">
+        <button type="button" class="chip" data-gps-start>GPS starten</button>
+        <button type="button" class="chip" data-gps-stop disabled>Stoppen</button>
+        <button type="button" class="button button--primary" data-gps-apply disabled>Fläche übernehmen</button>
+      </div>
+      <p class="measure__message" data-measure-message role="status"></p>`;
+    const status = panel.querySelector('[data-gps-status]');
+    const start = panel.querySelector('[data-gps-start]');
+    const stop = panel.querySelector('[data-gps-stop]');
+    const apply = panel.querySelector('[data-gps-apply]');
+    const points = [];
+    let watchId = null;
+
+    const update = () => {
+      const area = polygonArea(points);
+      const punkteLabel = points.length === 1 ? '1 Punkt' : `${points.length} Punkte`;
+      status.textContent = points.length
+        ? `${punkteLabel} aufgezeichnet. Fläche: ${formatNumber(area, 2)} m².`
+        : 'Starte die Aufzeichnung und laufe die Fläche einmal ab.';
+      apply.disabled = points.length < 3 || area <= 0;
+    };
+
+    const stopWatch = () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      start.disabled = false;
+      stop.disabled = true;
+      if (measureCleanup === cleanup) measureCleanup = null;
+    };
+
+    const cleanup = () => stopWatch();
+
+    start.addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        setMeasureMessage(details, 'GPS ist in diesem Browser nicht verfügbar.', 'error');
+        return;
+      }
+      stopMeasure();
+      points.length = 0;
+      update();
+      start.disabled = true;
+      stop.disabled = false;
+      setMeasureMessage(details, 'Standort wird aufgezeichnet. Bitte die Fläche umlaufen.', 'info');
+      try {
+        watchId = navigator.geolocation.watchPosition((position) => {
+          points.push({ lat: position.coords.latitude, lon: position.coords.longitude });
+          update();
+        }, (error) => {
+          setMeasureMessage(details, geoErrorMessage(error), 'error');
+          stopWatch();
+        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+        measureCleanup = cleanup;
+      } catch {
+        setMeasureMessage(details, 'GPS konnte nicht gestartet werden.', 'error');
+        stopWatch();
+      }
+    });
+
+    stop.addEventListener('click', () => {
+      stopWatch();
+      update();
+      setMeasureMessage(details, points.length >= 3
+        ? 'GPS gestoppt. Die Fläche kann jetzt übernommen werden.'
+        : 'GPS gestoppt. Bitte mindestens drei Punkte aufzeichnen.', points.length >= 3 ? 'success' : 'error');
+    });
+
+    apply.addEventListener('click', () => {
+      const area = polygonArea(points);
+      if (area <= 0) {
+        setMeasureMessage(details, 'Die aufgezeichnete Fläche ist noch zu klein.', 'error');
+        return;
+      }
+      applyMeasuredArea(details, area, `GPS (${points.length} Punkte)`);
+      stopWatch();
+    });
+
+    return;
+  }
+
+  if (mode === 'speech') {
+    const Recognition = getSpeechRecognition();
+    if (!Recognition) {
+      panel.innerHTML = '<p class="measure__message" data-measure-message role="status">Spracherkennung ist in diesem Browser nicht verfügbar.</p>';
+      return;
+    }
+    panel.innerHTML = `
+      <p class="measure__readout" data-speech-status>Ich höre zu …</p>
+      <p class="measure__message" data-measure-message role="status">Sage zum Beispiel „zwölf Meter mal acht Meter“ oder „zwölf Quadratmeter“.</p>`;
+    const recognition = new Recognition();
+    recognition.lang = 'de-DE';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    const cleanup = () => {
+      try {
+        recognition.abort();
+      } catch {
+        // Die Erkennung ist bereits beendet.
+      }
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
+      if (!transcript) return;
+      const measurement = parseSpokenMeasurement(transcript);
+      if (measurement.flaeche > 0) {
+        applyMeasuredArea(details, measurement.flaeche, `Diktat „${transcript}“`);
+      } else if (measurement.laenge > 0 && measurement.breite > 0) {
+        applyMeasuredArea(details, rectangleArea(measurement.laenge, measurement.breite), `Diktat „${transcript}“`);
+      } else {
+        setMeasureMessage(details, `Erkannt: „${transcript}“. Bitte Länge und Breite nennen.`, 'error');
+      }
+    };
+
+    recognition.onerror = (event) => {
+      const messages = {
+        'not-allowed': 'Mikrofonzugriff wurde abgelehnt.',
+        'service-not-allowed': 'Spracherkennung ist nicht erlaubt.',
+        'no-speech': 'Keine Sprache erkannt.',
+        'audio-capture': 'Kein Mikrofon gefunden.',
+      };
+      setMeasureMessage(details, messages[event.error] || 'Spracherkennung ist fehlgeschlagen.', 'error');
+      if (measureCleanup === cleanup) measureCleanup = null;
+    };
+
+    recognition.onend = () => {
+      const speechStatus = panel.querySelector('[data-speech-status]');
+      if (speechStatus) speechStatus.textContent = 'Diktat beendet.';
+      if (measureCleanup === cleanup) measureCleanup = null;
+    };
+
+    measureCleanup = cleanup;
+    try {
+      recognition.start();
+    } catch {
+      setMeasureMessage(details, 'Das Mikrofon konnte nicht gestartet werden.', 'error');
+      if (measureCleanup === cleanup) measureCleanup = null;
+    }
+    return;
+  }
+
+  panel.innerHTML = '<p class="measure__message" data-measure-message role="status">Diesen Assistenten gibt es nicht.</p>';
+}
+
 function renderField(item, scope, value, options = {}) {
   const fieldId = `field-${scope}-${item.id}`;
   const errorId = `err-${scope}-${item.id}`;
@@ -184,6 +497,7 @@ function renderField(item, scope, value, options = {}) {
       ${control}
       ${help}
       <span class="field__error" id="${errorId}" role="alert" hidden></span>
+      ${item.art === 'flaeche' ? measureAssistant(fieldId) : ''}
     </div>`;
 }
 
@@ -394,6 +708,17 @@ async function renderKalkulation(packId, token) {
   form.addEventListener('input', recalc);
   form.addEventListener('change', recalc);
   form.addEventListener('submit', (event) => event.preventDefault());
+  form.addEventListener('click', (event) => {
+    const modeButton = event.target.closest('[data-measure-mode]');
+    if (!modeButton) return;
+    const details = modeButton.closest('[data-measure]');
+    if (!details) return;
+    event.preventDefault();
+    openMeasurePanel(details, modeButton.dataset.measureMode);
+  });
+  form.addEventListener('toggle', (event) => {
+    if (event.target.matches?.('[data-measure]') && !event.target.open) stopMeasure();
+  }, true);
   recalc();
 }
 
@@ -425,6 +750,7 @@ function renderHelp() {
 async function router() {
   const token = ++renderToken;
   const route = (location.hash || '#/').slice(1) || '/';
+  stopMeasure();
   setActiveNav(route);
   try {
     if (route === '/') await renderHome(token);
