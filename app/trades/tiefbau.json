@@ -1,0 +1,28 @@
+{
+  "id": "tiefbau",
+  "name": "Tiefbau & Kanalbau",
+  "gruppe": "Bau & Außen",
+  "icon": "rohr",
+  "beschreibung": "Graben, Bettung, Rohre und Schächte kalkulieren.",
+  "eingaben": [
+    {"id": "grabenlaenge", "label": "Grabenlänge", "art": "laenge", "einheit": "m", "standard": 0},
+    {"id": "grabenbreite", "label": "Grabenbreite", "art": "laenge", "einheit": "m", "standard": 0.6, "min": 0.3, "max": 3},
+    {"id": "grabentiefe", "label": "Grabentiefe", "art": "laenge", "einheit": "m", "standard": 1, "min": 0.3, "max": 6},
+    {"id": "rohrlaenge", "label": "Rohrlänge", "art": "laenge", "einheit": "m", "standard": 0},
+    {"id": "schaechte", "label": "Schächte", "art": "anzahl", "einheit": "Stk", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "auflockerung", "label": "Auflockerung", "einheit": "%", "standard": 20, "min": 0, "max": 80},
+    {"id": "bettungDicke", "label": "Bettungsdicke", "einheit": "m", "standard": 0.2, "min": 0.05, "max": 0.5}
+  ],
+  "ressourcen": [
+    {"id": "aushub", "label": "Aushub-Transport", "art": "transport", "einheit": "Fahrten", "volumenFormel": "grabenlaenge * grabenbreite * grabentiefe * (1 + auflockerung / 100)", "gewichtFormel": "grabenlaenge * grabenbreite * grabentiefe * 1.8", "volumenProFahrt": 8, "gewichtProFahrt": 12, "preisProFahrt": 190},
+    {"id": "bettung", "label": "Bettung", "art": "material", "einheit": "m³", "formel": "grabenlaenge * grabenbreite * bettungDicke", "preisProEinheit": 45},
+    {"id": "rohre", "label": "Rohre", "art": "material", "einheit": "m", "formel": "rohrlaenge", "preisProEinheit": 28},
+    {"id": "schacht", "label": "Schächte", "art": "material", "einheit": "Stk", "formel": "schaechte", "preisProEinheit": 450},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "grabenlaenge * 0.8 + schaechte * 2", "preisProEinheit": 55}
+  ],
+  "preise": {"mwst": 19, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Tiefbauarbeiten", "mengeLabel": "Grabenlänge", "mengeEinheit": "m", "mengeFormel": "grabenlaenge"}
+}

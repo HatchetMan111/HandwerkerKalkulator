@@ -1,0 +1,25 @@
+{
+  "id": "trockenbau",
+  "name": "Trockenbau",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "platte",
+  "beschreibung": "Gipskartonplatten, Schrauben, Spachtel und Arbeitszeit kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Wand-/Deckenfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "plattenProM2", "label": "Platten pro m²", "einheit": "Stk/m²", "standard": 0.4, "min": 0.1, "max": 2},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 10, "min": 0, "max": 30},
+    {"id": "schraubenProM2", "label": "Schrauben pro m²", "einheit": "Stk/m²", "standard": 25, "min": 1, "max": 100},
+    {"id": "spachtelProM2", "label": "Spachtel", "einheit": "kg/m²", "standard": 0.5, "min": 0.1, "max": 5}
+  ],
+  "ressourcen": [
+    {"id": "platten", "label": "Gipskartonplatten", "art": "material", "einheit": "Stk", "formel": "flaeche * plattenProM2 * (1 + verschnitt / 100)", "preisProEinheit": 8},
+    {"id": "schrauben", "label": "Schrauben", "art": "material", "einheit": "Stk", "formel": "flaeche * schraubenProM2", "preisProEinheit": 0.08},
+    {"id": "spachtel", "label": "Spachtelmasse", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaeche * spachtelProM2", "kgProSack": 25, "preisProSack": 16},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "flaeche / 10", "preisProEinheit": 48}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 300, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Trockenbauarbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

@@ -1,0 +1,21 @@
+{
+  "id": "reinigung",
+  "name": "Reinigung",
+  "gruppe": "Dienstleistung & Sonstiges",
+  "icon": "reinigung",
+  "beschreibung": "Reinigungszeit, Material und Anfahrt kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Zu reinigende Fläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "frequenz", "label": "Reinigungen", "art": "anzahl", "einheit": "x", "standard": 1, "min": 1, "max": 52}
+  ],
+  "faktoren": [
+    {"id": "m2ProStunde", "label": "Fläche pro Stunde", "einheit": "m²/h", "standard": 60, "min": 10, "max": 300}
+  ],
+  "ressourcen": [
+    {"id": "arbeit", "label": "Reinigungszeit", "art": "stunden", "einheit": "h", "formel": "flaeche / m2ProStunde * frequenz", "preisProEinheit": 32},
+    {"id": "material", "label": "Reinigungsmaterial", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 25},
+    {"id": "anfahrt", "label": "Anfahrt", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 35}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 120},
+  "ausgabe": {"titel": "Reinigungsarbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

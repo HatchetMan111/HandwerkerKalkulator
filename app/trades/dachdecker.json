@@ -1,0 +1,24 @@
+{
+  "id": "dachdecker",
+  "name": "Dachdecker",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "dach",
+  "beschreibung": "Dachziegel, Firstziegel und Arbeitszeit kalkulieren.",
+  "eingaben": [
+    {"id": "dachflaeche", "label": "Dachfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "firstlaenge", "label": "Firstlänge", "art": "laenge", "einheit": "m", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "ziegelProM2", "label": "Ziegel pro m²", "einheit": "Stk/m²", "standard": 10, "min": 1, "max": 30},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 10, "min": 0, "max": 30}
+  ],
+  "ressourcen": [
+    {"id": "ziegel", "label": "Dachziegel", "art": "material", "einheit": "Stk", "formel": "dachflaeche * ziegelProM2 * (1 + verschnitt / 100)", "preisProEinheit": 1.2},
+    {"id": "paletten", "label": "Ziegel-Paletten", "art": "palette", "einheit": "Paletten", "stueckFormel": "dachflaeche * ziegelProM2 * (1 + verschnitt / 100)", "stueckProPalette": 250, "preisProPalette": 0},
+    {"id": "firstziegel", "label": "Firstziegel", "art": "material", "einheit": "Stk", "formel": "firstlaenge * 3", "preisProEinheit": 8},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "dachflaeche / 8", "preisProEinheit": 60}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 400, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Dachdeckerarbeiten", "mengeLabel": "Dachfläche", "mengeEinheit": "m²", "mengeFormel": "dachflaeche"}
+}

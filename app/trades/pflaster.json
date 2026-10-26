@@ -1,0 +1,26 @@
+{
+  "id": "pflaster",
+  "name": "Pflasterarbeiten",
+  "gruppe": "Bau & Außen",
+  "icon": "pflaster",
+  "beschreibung": "Pflastersteine, Splitt, Sand und Arbeitszeit kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Pflasterfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "steineProM2", "label": "Steine pro m²", "einheit": "Stk/m²", "standard": 40, "min": 10, "max": 100},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 8, "min": 0, "max": 30},
+    {"id": "splittProM2", "label": "Splitt", "einheit": "kg/m²", "standard": 30, "min": 1, "max": 100},
+    {"id": "sandProM2", "label": "Sand", "einheit": "kg/m²", "standard": 50, "min": 1, "max": 150}
+  ],
+  "ressourcen": [
+    {"id": "steine", "label": "Pflastersteine", "art": "material", "einheit": "Stk", "formel": "flaeche * steineProM2 * (1 + verschnitt / 100)", "preisProEinheit": 0.9},
+    {"id": "paletten", "label": "Stein-Paletten", "art": "palette", "einheit": "Paletten", "stueckFormel": "flaeche * steineProM2 * (1 + verschnitt / 100)", "stueckProPalette": 500, "preisProPalette": 0},
+    {"id": "splitt", "label": "Splitt", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaeche * splittProM2", "kgProSack": 25, "preisProSack": 5},
+    {"id": "sand", "label": "Sand", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaeche * sandProM2", "kgProSack": 25, "preisProSack": 4},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "flaeche / 5", "preisProEinheit": 48}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 400, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Pflasterarbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

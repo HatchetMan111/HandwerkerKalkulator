@@ -1,0 +1,25 @@
+{
+  "id": "beton",
+  "name": "Betonbau",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "beton",
+  "beschreibung": "Beton, Bewehrung, Fahrmischer und Arbeitszeit kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Betonfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "dicke", "label": "Bauteildicke", "art": "laenge", "einheit": "m", "standard": 0.15, "min": 0.05, "max": 1},
+    {"id": "bewehrung", "label": "Bewehrung", "art": "anzahl", "einheit": "kg/m³", "standard": 80, "min": 0, "max": 250},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 5, "min": 0, "max": 20},
+    {"id": "dichte", "label": "Betondichte", "einheit": "t/m³", "standard": 2.4, "min": 2, "max": 2.8}
+  ],
+  "ressourcen": [
+    {"id": "beton", "label": "Beton", "art": "material", "einheit": "m³", "formel": "flaeche * dicke * (1 + verschnitt / 100)", "preisProEinheit": 125},
+    {"id": "bewehrungsstahl", "label": "Bewehrungsstahl", "art": "material", "einheit": "kg", "formel": "flaeche * dicke * bewehrung", "preisProEinheit": 1.1},
+    {"id": "fahrmischer", "label": "Fahrmischer", "art": "transport", "einheit": "Fahrten", "volumenFormel": "flaeche * dicke * (1 + verschnitt / 100)", "gewichtFormel": "flaeche * dicke * dichte", "volumenProFahrt": 8, "gewichtProFahrt": 24, "preisProFahrt": 250},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "flaeche * 0.8 + flaeche * dicke * 2", "preisProEinheit": 55}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 500, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Betonarbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

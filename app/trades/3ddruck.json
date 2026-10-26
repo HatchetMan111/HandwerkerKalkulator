@@ -1,0 +1,21 @@
+{
+  "id": "3ddruck",
+  "name": "3D-Druck",
+  "gruppe": "Dienstleistung & Sonstiges",
+  "icon": "3d",
+  "beschreibung": "Filament, Rollen und Druckzeit kalkulieren.",
+  "eingaben": [
+    {"id": "volumenCm3", "label": "Modellvolumen", "art": "volumen", "einheit": "cm³", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "dichte", "label": "Filamentdichte", "einheit": "g/cm³", "standard": 1.24, "min": 1, "max": 2},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 5, "min": 0, "max": 30}
+  ],
+  "ressourcen": [
+    {"id": "filament", "label": "Filament", "art": "material", "einheit": "g", "formel": "volumenCm3 * dichte * (1 + verschnitt / 100)", "preisProEinheit": 0.03},
+    {"id": "rollen", "label": "Filamentrollen (Anzeige)", "art": "material", "einheit": "Rollen", "formel": "ceil(volumenCm3 * dichte * (1 + verschnitt / 100) / 1000)", "preisProEinheit": 0},
+    {"id": "druckzeit", "label": "Druckzeit", "art": "stunden", "einheit": "h", "formel": "volumenCm3 / 10", "preisProEinheit": 3.5}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 25},
+  "ausgabe": {"titel": "3D-Druck", "mengeLabel": "Volumen", "mengeEinheit": "cm³", "mengeFormel": "volumenCm3"}
+}

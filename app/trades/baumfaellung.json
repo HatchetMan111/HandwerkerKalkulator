@@ -1,0 +1,21 @@
+{
+  "id": "baumfaellung",
+  "name": "Baumfällung & Grünpflege",
+  "gruppe": "Bau & Außen",
+  "icon": "baum",
+  "beschreibung": "Fällarbeiten, Hackschnitzel und Entsorgung kalkulieren.",
+  "eingaben": [
+    {"id": "anzahl", "label": "Anzahl Bäume", "art": "anzahl", "einheit": "Stk", "standard": 0},
+    {"id": "durchmesser", "label": "Stammdurchmesser", "art": "laenge", "einheit": "cm", "standard": 30, "min": 5, "max": 150},
+    {"id": "hoehe", "label": "Baumhöhe", "art": "laenge", "einheit": "m", "standard": 15, "min": 1, "max": 50},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [],
+  "ressourcen": [
+    {"id": "faellen", "label": "Fällarbeiten", "art": "stunden", "einheit": "h", "formel": "anzahl * (0.5 + durchmesser / 40 + hoehe / 20)", "preisProEinheit": 65},
+    {"id": "hackschnitzel", "label": "Hackschnitzel-Transport", "art": "transport", "einheit": "Fahrten", "volumenFormel": "anzahl * (durchmesser / 100) * (durchmesser / 100) * hoehe", "gewichtFormel": "anzahl * (durchmesser / 100) * (durchmesser / 100) * hoehe * 0.8", "volumenProFahrt": 8, "gewichtProFahrt": 5, "preisProFahrt": 160},
+    {"id": "entsorgung", "label": "Entsorgung", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 120}
+  ],
+  "preise": {"mwst": 19, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Baumfällung", "mengeLabel": "Bäume", "mengeEinheit": "Stk", "mengeFormel": "anzahl"}
+}

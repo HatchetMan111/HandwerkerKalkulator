@@ -1,0 +1,20 @@
+{
+  "id": "catering",
+  "name": "Catering",
+  "gruppe": "Dienstleistung & Sonstiges",
+  "icon": "catering",
+  "beschreibung": "Portionen, Getränke und Servicezeit kalkulieren.",
+  "eingaben": [
+    {"id": "gaeste", "label": "Gäste", "art": "anzahl", "einheit": "Personen", "standard": 0},
+    {"id": "portionenProGast", "label": "Portionen pro Gast", "art": "anzahl", "einheit": "Stk", "standard": 1.5, "min": 0.5, "max": 5},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [],
+  "ressourcen": [
+    {"id": "portionen", "label": "Portionen", "art": "material", "einheit": "Stk", "formel": "gaeste * portionenProGast", "preisProEinheit": 12},
+    {"id": "getraenke", "label": "Getränke", "art": "material", "einheit": "Stk", "formel": "gaeste * 2", "preisProEinheit": 3.5},
+    {"id": "service", "label": "Servicezeit", "art": "stunden", "einheit": "h", "formel": "gaeste / 20 + 2", "preisProEinheit": 35}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 250, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Catering", "mengeLabel": "Gäste", "mengeEinheit": "Personen", "mengeFormel": "gaeste"}
+}

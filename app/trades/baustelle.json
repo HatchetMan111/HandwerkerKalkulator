@@ -1,0 +1,21 @@
+{
+  "id": "baustelle",
+  "name": "Baustelleneinrichtung",
+  "gruppe": "Bau & Außen",
+  "icon": "container",
+  "beschreibung": "Bauzaun, Toiletten und Transport für die Baustelle kalkulieren.",
+  "eingaben": [
+    {"id": "zaunlaenge", "label": "Zaunlänge", "art": "laenge", "einheit": "m", "standard": 0},
+    {"id": "toiletten", "label": "Toiletten", "art": "anzahl", "einheit": "Stk", "standard": 0},
+    {"id": "dauer", "label": "Dauer", "art": "tage", "einheit": "Tage", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [],
+  "ressourcen": [
+    {"id": "bauzaun", "label": "Bauzaun", "art": "material", "einheit": "m", "formel": "zaunlaenge", "preisProEinheit": 12},
+    {"id": "toilettenmiete", "label": "Toilettenmiete", "art": "material", "einheit": "Toiletten·Tage", "formel": "toiletten * dauer", "preisProEinheit": 45},
+    {"id": "transport", "label": "Transport", "art": "transport", "einheit": "Fahrten", "volumenFormel": "zaunlaenge * 0.1", "gewichtFormel": "zaunlaenge * 0.02", "volumenProFahrt": 8, "gewichtProFahrt": 5, "preisProFahrt": 120}
+  ],
+  "preise": {"mwst": 19, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Baustelleneinrichtung", "mengeLabel": "Zaunlänge", "mengeEinheit": "m", "mengeFormel": "zaunlaenge"}
+}

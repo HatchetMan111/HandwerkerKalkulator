@@ -1,0 +1,19 @@
+{
+  "id": "fotografie",
+  "name": "Fotografie",
+  "gruppe": "Dienstleistung & Sonstiges",
+  "icon": "kamera",
+  "beschreibung": "Shooting, Nachbearbeitung und Anfahrt kalkulieren.",
+  "eingaben": [
+    {"id": "stunden", "label": "Shooting-Dauer", "art": "stunden", "einheit": "h", "standard": 2, "min": 0.5, "max": 12},
+    {"id": "bilder", "label": "Anzahl Bilder", "art": "anzahl", "einheit": "Stk", "standard": 50, "min": 1, "max": 1000}
+  ],
+  "faktoren": [],
+  "ressourcen": [
+    {"id": "shooting", "label": "Shooting", "art": "stunden", "einheit": "h", "formel": "stunden", "preisProEinheit": 85},
+    {"id": "nachbearbeitung", "label": "Nachbearbeitung", "art": "stunden", "einheit": "h", "formel": "bilder / 10", "preisProEinheit": 55},
+    {"id": "anfahrt", "label": "Anfahrt", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 40}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 150},
+  "ausgabe": {"titel": "Fotografie", "mengeLabel": "Bilder", "mengeEinheit": "Stk", "mengeFormel": "bilder"}
+}

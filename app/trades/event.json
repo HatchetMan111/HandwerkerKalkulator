@@ -1,0 +1,21 @@
+{
+  "id": "event",
+  "name": "Event & Vermietung",
+  "gruppe": "Dienstleistung & Sonstiges",
+  "icon": "event",
+  "beschreibung": "Tische, Stühle, Zelt und Aufbauzeit kalkulieren.",
+  "eingaben": [
+    {"id": "gaeste", "label": "Gäste", "art": "anzahl", "einheit": "Personen", "standard": 0},
+    {"id": "dauer", "label": "Dauer", "art": "stunden", "einheit": "h", "standard": 4, "min": 1, "max": 72},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [],
+  "ressourcen": [
+    {"id": "tische", "label": "Tische", "art": "material", "einheit": "Stk", "formel": "ceil(gaeste / 8)", "preisProEinheit": 8},
+    {"id": "stuehle", "label": "Stühle", "art": "material", "einheit": "Stk", "formel": "gaeste", "preisProEinheit": 2.5},
+    {"id": "zelt", "label": "Zelt", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 450},
+    {"id": "aufbau", "label": "Aufbauzeit", "art": "stunden", "einheit": "h", "formel": "dauer + 2", "preisProEinheit": 40}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 300, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Event & Vermietung", "mengeLabel": "Gäste", "mengeEinheit": "Personen", "mengeFormel": "gaeste"}
+}

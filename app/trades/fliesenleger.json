@@ -1,0 +1,23 @@
+{
+  "id": "fliesenleger", "name": "Fliesenleger", "gruppe": "Ausbau & Hochbau", "icon": "fliese",
+  "beschreibung": "Fliesen, Kleber und Fugenmörtel für Wand- und Bodenflächen kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Zu fliesende Fläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "fliesenProM2", "label": "Fliesen pro m²", "einheit": "Stk/m²", "standard": 11, "min": 1, "max": 100},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 10, "min": 0, "max": 30},
+    {"id": "kleberProM2", "label": "Kleber", "einheit": "kg/m²", "standard": 4, "min": 1, "max": 20},
+    {"id": "fugeProM2", "label": "Fugenmörtel", "einheit": "kg/m²", "standard": 0.5, "min": 0.1, "max": 5}
+  ],
+  "ressourcen": [
+    {"id": "fliesen", "label": "Fliesen", "art": "material", "einheit": "Stk", "formel": "flaeche * fliesenProM2 * (1 + verschnitt / 100)", "preisProEinheit": 2.5},
+    {"id": "paletten", "label": "Fliesen-Paletten", "art": "palette", "einheit": "Paletten", "stueckFormel": "flaeche * fliesenProM2 * (1 + verschnitt / 100)", "stueckProPalette": 100, "preisProPalette": 0},
+    {"id": "kleber", "label": "Fliesenkleber", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaeche * kleberProM2", "kgProSack": 25, "preisProSack": 12},
+    {"id": "fuge", "label": "Fugenmörtel", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaeche * fugeProM2", "kgProSack": 25, "preisProSack": 18},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "flaeche / 6", "preisProEinheit": 55}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 250, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Fliesenarbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

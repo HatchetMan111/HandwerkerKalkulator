@@ -1,0 +1,21 @@
+{
+  "id": "landwirtschaft",
+  "name": "Landwirtschaft",
+  "gruppe": "Dienstleistung & Sonstiges",
+  "icon": "traktor",
+  "beschreibung": "Saatgut, Dünger und Maschinenstunden kalkulieren.",
+  "eingaben": [
+    {"id": "flaecheHa", "label": "Fläche", "art": "flaeche", "einheit": "ha", "standard": 0},
+    {"id": "saatgutProHa", "label": "Saatgut pro ha", "art": "anzahl", "einheit": "kg/ha", "standard": 180, "min": 0, "max": 500},
+    {"id": "duengerProHa", "label": "Dünger pro ha", "art": "anzahl", "einheit": "kg/ha", "standard": 200, "min": 0, "max": 800},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [],
+  "ressourcen": [
+    {"id": "saatgut", "label": "Saatgut", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaecheHa * saatgutProHa", "kgProSack": 25, "preisProSack": 28},
+    {"id": "duenger", "label": "Dünger", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaecheHa * duengerProHa", "kgProSack": 50, "preisProSack": 32},
+    {"id": "maschine", "label": "Maschinenstunden", "art": "stunden", "einheit": "h", "formel": "flaecheHa * 1.5", "preisProEinheit": 75}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 150, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Landwirtschaft", "mengeLabel": "Fläche", "mengeEinheit": "ha", "mengeFormel": "flaecheHa"}
+}

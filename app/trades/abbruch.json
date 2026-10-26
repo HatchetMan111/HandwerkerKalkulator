@@ -1,0 +1,23 @@
+{
+  "id": "abbruch",
+  "name": "Abbruch & Entsorgung",
+  "gruppe": "Bau & Außen",
+  "icon": "hammer",
+  "beschreibung": "Abbruchmengen, Mulden und Entsorgungstransporte kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Abbruchfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "dicke", "label": "Bauteildicke", "art": "laenge", "einheit": "m", "standard": 0.2, "min": 0.05, "max": 2},
+    {"id": "dichte", "label": "Baustoffdichte", "art": "anzahl", "einheit": "t/m³", "standard": 1.8, "min": 0.8, "max": 3},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "auflockerung", "label": "Auflockerung", "einheit": "%", "standard": 35, "min": 0, "max": 80}
+  ],
+  "ressourcen": [
+    {"id": "bauschutt", "label": "Bauschutt (lose)", "art": "material", "einheit": "m³", "formel": "flaeche * dicke * (1 + auflockerung / 100)", "preisProEinheit": 0},
+    {"id": "mulden", "label": "Mulden", "art": "container", "einheit": "Mulden", "volumenFormel": "flaeche * dicke * (1 + auflockerung / 100)", "volumenProContainer": 10, "preisProContainer": 320},
+    {"id": "transport", "label": "LKW-Transport", "art": "transport", "einheit": "Fahrten", "volumenFormel": "flaeche * dicke * (1 + auflockerung / 100)", "gewichtFormel": "flaeche * dicke * dichte", "volumenProFahrt": 8, "gewichtProFahrt": 12, "preisProFahrt": 180}
+  ],
+  "preise": {"mwst": 19, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Abbrucharbeiten", "mengeLabel": "Abbruchfläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}

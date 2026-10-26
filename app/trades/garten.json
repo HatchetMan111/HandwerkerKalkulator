@@ -1,0 +1,24 @@
+{
+  "id": "garten",
+  "name": "Garten- & Landschaftsbau",
+  "gruppe": "Bau & Außen",
+  "icon": "blatt",
+  "beschreibung": "Mutterboden, Verdichtung und Arbeitszeit für Außenanlagen kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Fläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "schichtdicke", "label": "Schichtdicke", "art": "laenge", "einheit": "m", "standard": 0.1, "min": 0.02, "max": 1},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "verdichtung", "label": "Verdichtung", "einheit": "%", "standard": 10, "min": 0, "max": 40},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 5, "min": 0, "max": 30},
+    {"id": "dichte", "label": "Bodendichte", "einheit": "t/m³", "standard": 1.4, "min": 0.8, "max": 2.5}
+  ],
+  "ressourcen": [
+    {"id": "mutterboden", "label": "Mutterboden", "art": "material", "einheit": "m³", "formel": "flaeche * schichtdicke * (1 + verdichtung / 100) * (1 + verschnitt / 100)", "preisProEinheit": 38},
+    {"id": "saecke", "label": "25-kg-Säcke (Anzeige)", "art": "sack", "einheit": "Säcke", "gewichtFormel": "flaeche * schichtdicke * dichte * 1000", "kgProSack": 25, "preisProSack": 0},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "flaeche / 20", "preisProEinheit": 42}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 200, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Garten- & Landschaftsbau", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}
