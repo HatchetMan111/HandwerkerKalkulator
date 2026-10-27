@@ -323,25 +323,46 @@ EOF
 }
 configure_container_dns
 
-# Der Container kann per DNS flattern. Für die Installation pinnen wir die
-# benötigten Repositories daher vom Host aus in die Container-Hosts-Datei.
+# Der Container kann per DNS flattern. Für die Installation bauen wir die
+# Container-/etc/hosts auf dem Host und schieben sie zurück in den Container.
 seed_container_hosts() {
-  local host ip
+  local tmp host ip
+  tmp="$(mktemp)"
+  pct pull "$CT_ID" /etc/hosts "$tmp" 2>/dev/null || : > "$tmp"
+
+  grep -qE '^127\.0\.0\.1[[:space:]]+localhost' "$tmp" 2>/dev/null || echo "127.0.0.1 localhost" >> "$tmp"
+  grep -qE '^::1[[:space:]]+localhost' "$tmp" 2>/dev/null || echo "::1 localhost ip6-localhost ip6-loopback" >> "$tmp"
+  grep -qE "^127\.0\.1\.1[[:space:]]+${CT_HOSTNAME}" "$tmp" 2>/dev/null || echo "127.0.1.1 ${CT_HOSTNAME}" >> "$tmp"
+
   while IFS= read -r host; do
     ip="$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR == 1 {print $1}' || true)"
     [[ -n "$ip" ]] || { msg_warn "Host-DNS konnte ${host} nicht auflösen – überspringe Eintrag."; continue; }
-    # shellcheck disable=SC2016
-    pct exec "$CT_ID" -- bash -c 'grep -qE "^[^#]*[[:space:]]+$2[[:space:]]*$" /etc/hosts 2>/dev/null || printf "%s %s\n" "$1" "$2" >> /etc/hosts' _ "$ip" "$host" \
-      || msg_warn "Konnte ${host} nicht in die Container-Hosts-Datei eintragen."
+    grep -qE "^[^#]*[[:space:]]+${host}[[:space:]]*$" "$tmp" 2>/dev/null || echo "${ip} ${host}" >> "$tmp"
   done <<'HOSTS'
 deb.debian.org
 security.debian.org
 deb.nodesource.com
 github.com
 HOSTS
+
+  pct push "$CT_ID" "$tmp" /etc/hosts || { msg_error "Konnte /etc/hosts nicht in den Container schreiben."; rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
   msg_ok "Repositorien aus Host-DNS in /etc/hosts gepinnt."
+
+  for host in deb.debian.org security.debian.org deb.nodesource.com github.com; do
+    if ! pct exec "$CT_ID" -- getent ahostsv4 "$host" >/dev/null 2>&1; then
+      msg_error "Container kann ${host} auch über /etc/hosts nicht auflösen."
+      pct exec "$CT_ID" -- cat /etc/hosts 2>/dev/null || true
+      pct exec "$CT_ID" -- cat /etc/resolv.conf 2>/dev/null || true
+      return 1
+    fi
+  done
+  msg_ok "Container löst die Installations-Hosts über /etc/hosts auf."
+  return 0
 }
 seed_container_hosts
+
+pct exec "$CT_ID" -- bash -c 'printf "Acquire::ForceIPv4 \"true\";\n" > /etc/apt/apt.conf.d/99force-ipv4' 2>/dev/null || true
 
 if [[ -n "$SSH_KEY_ARG" ]]; then
   [[ -f "$SSH_KEY_ARG" ]] || { msg_error "SSH-Key nicht gefunden: $SSH_KEY_ARG"; exit 1; }
