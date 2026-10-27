@@ -313,6 +313,7 @@ pct exec "$CT_ID" -- bash -c '
   mkdir -p /opt/node
   tar -xzf /tmp/handwerker-kalkulator-node.tar.gz -C /opt/node --strip-components=1
   ln -sfn /opt/node/bin/node /usr/bin/node
+  chmod +x /opt/node/bin/node
   rm -f /tmp/handwerker-kalkulator-node.tar.gz
   node --version
 '
@@ -365,7 +366,7 @@ WorkingDirectory=${APP_DIR}
 Environment=NODE_ENV=production
 Environment=PORT=${APP_PORT}
 Environment=DATA_DIR=${DATA_DIR}
-ExecStart=/usr/bin/node ${APP_DIR}/server/server.js
+ExecStart=/opt/node/bin/node ${APP_DIR}/server/server.js
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
