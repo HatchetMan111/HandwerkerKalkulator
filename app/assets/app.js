@@ -4,6 +4,7 @@ import { formatNumber, formatCurrency, formatDate, parseGermanNumber } from './f
 import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement } from './measure.js';
 
 const GROUPS = ['Bau & Außen', 'Ausbau & Hochbau', 'Dienstleistung & Sonstiges'];
+const DEFAULT_TITLE = 'Handwerker-Kalkulator';
 const app = document.getElementById('app');
 app.tabIndex = -1;
 let renderToken = 0;
@@ -629,8 +630,10 @@ const DRAFT_KEY = 'hk_entwurf';
 const STATUS_LABELS = {
   entwurf: 'Entwurf',
   angebot: 'Angebot',
+  auftrag: 'Auftragsbestätigung',
   auftragsbestaetigung: 'Auftragsbestätigung',
   rechnung: 'Rechnung',
+  abgeschlossen: 'Abgeschlossen',
   bezahlt: 'Bezahlt',
   storniert: 'Storniert',
 };
@@ -683,7 +686,7 @@ function applyJobState(state, job) {
   return state;
 }
 
-function applyDraftToForm(form, state, draft, titleInput) {
+function applyDraftToForm(form, state, draft, titleInput, jobMeta) {
   for (const scope of ['eingaben', 'faktoren', 'preise']) {
     const values = draft.state?.[scope];
     if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
@@ -694,7 +697,70 @@ function applyDraftToForm(form, state, draft, titleInput) {
       state[scope][id] = value;
     }
   }
+  for (const group of ['kunde', 'baustelle']) {
+    const values = draft.meta?.[group];
+    if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
+    for (const [key, value] of Object.entries(values)) {
+      const el = [...form.querySelectorAll('[data-meta]')].find((entry) => entry.dataset.meta === `${group}.${key}`);
+      if (!el) continue;
+      el.value = value ?? '';
+      if (jobMeta[group]) jobMeta[group][key] = String(value ?? '');
+    }
+  }
   if (draft.titel) titleInput.value = draft.titel;
+}
+
+function addressSource(value, kind) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return { ...value };
+  if (typeof value === 'string' && value.trim()) {
+    return kind === 'kunde' ? { name: value } : { hinweis: value };
+  }
+  return {};
+}
+
+function createJobMeta(job) {
+  return {
+    kunde: {
+      name: '', firma: '', strasse: '', plz: '', ort: '',
+      ...addressSource(job?.kunde, 'kunde'),
+    },
+    baustelle: {
+      strasse: '', plz: '', ort: '', hinweis: '',
+      ...addressSource(job?.baustelle, 'baustelle'),
+    },
+  };
+}
+
+function metaField(label, path, value, placeholder = '') {
+  return `
+    <label class="field">
+      <span class="field__label">${escapeHtml(label)}</span>
+      <span class="field__control">
+        <input class="field__input" type="text" data-meta="${path}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}" autocomplete="off">
+      </span>
+    </label>`;
+}
+
+function renderMetaPanel(jobMeta) {
+  const filled = [...Object.values(jobMeta.kunde), ...Object.values(jobMeta.baustelle)].some((value) => String(value || '').trim());
+  return `
+    <details class="panel" data-meta-panel${filled ? ' open' : ''}>
+      <summary class="panel__head">
+        <h2>Kunde &amp; Baustelle</h2>
+        <span class="muted">${filled ? 'Für den Druck hinterlegt' : 'Optional für den Druck'}</span>
+      </summary>
+      <div class="fields">
+        ${metaField('Kunde – Name', 'kunde.name', jobMeta.kunde.name, 'z. B. Erika Mustermann')}
+        ${metaField('Kunde – Firma', 'kunde.firma', jobMeta.kunde.firma)}
+        ${metaField('Kunde – Straße', 'kunde.strasse', jobMeta.kunde.strasse)}
+        ${metaField('Kunde – PLZ', 'kunde.plz', jobMeta.kunde.plz)}
+        ${metaField('Kunde – Ort', 'kunde.ort', jobMeta.kunde.ort)}
+        ${metaField('Baustelle – Straße', 'baustelle.strasse', jobMeta.baustelle.strasse)}
+        ${metaField('Baustelle – PLZ', 'baustelle.plz', jobMeta.baustelle.plz)}
+        ${metaField('Baustelle – Ort', 'baustelle.ort', jobMeta.baustelle.ort)}
+        ${metaField('Baustelle – Hinweis', 'baustelle.hinweis', jobMeta.baustelle.hinweis)}
+      </div>
+    </details>`;
 }
 
 function jobRow(job) {
@@ -702,7 +768,13 @@ function jobRow(job) {
   const gewerk = job.gewerkName || job.gewerkId || 'Gewerk';
   const status = job.status || 'entwurf';
   const total = Number(job.summen?.gesamt);
-  const search = normalise(`${title} ${gewerk} ${job.kunde || ''} ${job.baustelle || ''} ${statusLabel(status)}`);
+  const customer = job.kunde && typeof job.kunde === 'object'
+    ? (job.kunde.firma || job.kunde.name || '')
+    : (job.kunde || '');
+  const site = job.baustelle && typeof job.baustelle === 'object'
+    ? [job.baustelle.strasse, job.baustelle.ort].filter(Boolean).join(' ')
+    : (job.baustelle || '');
+  const search = normalise(`${title} ${gewerk} ${customer} ${site} ${statusLabel(status)}`);
   const statusClass = String(status).replace(/[^a-z0-9_-]/gi, '');
   return `
     <article class="job-row" data-job data-status="${escapeHtml(status)}" data-search="${escapeHtml(search)}">
@@ -713,7 +785,7 @@ function jobRow(job) {
           <span>${formatDate(job.updatedAt || job.createdAt)}</span>
         </div>
         <h2><a href="#/vorgang/${encodeURIComponent(job.id)}">${escapeHtml(title)}</a></h2>
-        <p>${Number.isFinite(total) ? formatCurrency(total) : 'Noch kein Betrag'}${job.kunde ? ` · ${escapeHtml(job.kunde)}` : ''}</p>
+        <p>${Number.isFinite(total) ? formatCurrency(total) : 'Noch kein Betrag'}${customer ? ` · ${escapeHtml(customer)}` : ''}</p>
       </div>
       <div class="job-row__actions">
         <a class="button button--ghost button--compact" href="#/vorgang/${encodeURIComponent(job.id)}">Öffnen</a>
@@ -856,6 +928,231 @@ async function renderVorgaenge(token) {
   filterJobs();
 }
 
+function printTitle(status) {
+  if (status === 'rechnung' || status === 'abgeschlossen') return 'Rechnung';
+  if (status === 'auftrag' || status === 'auftragsbestaetigung') return 'Auftragsbestätigung';
+  return 'Angebot';
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function ensurePrintNumber(job) {
+  const updates = {};
+  const status = job.status || 'entwurf';
+  if (status === 'rechnung' || status === 'abgeschlossen') {
+    if (!job.rechnungNummer) {
+      if (job.nummer) {
+        updates.rechnungNummer = job.nummer;
+      } else {
+        const nummer = await api.post('/api/nummern/rechnung');
+        updates.rechnungNummer = nummer.nummer;
+        updates.nummer = nummer.nummer;
+      }
+    }
+  } else {
+    if (!job.angebotNummer) {
+      if (job.nummer) {
+        updates.angebotNummer = job.nummer;
+      } else {
+        const nummer = await api.post('/api/nummern/angebot');
+        updates.angebotNummer = nummer.nummer;
+        updates.nummer = nummer.nummer;
+      }
+    }
+    if (status === 'entwurf') updates.status = 'angebot';
+  }
+  if (Object.keys(updates).length === 0) return job;
+  return api.put(`/api/jobs/${encodeURIComponent(job.id)}`, updates);
+}
+
+function printAddressBlock(value, kind) {
+  const data = addressSource(value, kind);
+  const lines = [];
+  if (kind === 'kunde' && data.firma) lines.push(`<strong>${escapeHtml(data.firma)}</strong>`);
+  if (data.name) lines.push(escapeHtml(data.name));
+  if (data.strasse) lines.push(escapeHtml(data.strasse));
+  const city = [data.plz, data.ort].filter(Boolean).join(' ');
+  if (city) lines.push(escapeHtml(city));
+  if (kind === 'baustelle' && data.hinweis) lines.push(`<span class="print-muted">${escapeHtml(data.hinweis)}</span>`);
+  return lines.length ? lines.join('<br>') : '<span class="print-muted">Noch nicht hinterlegt.</span>';
+}
+
+function renderPrintView(job, settings, token) {
+  const title = printTitle(job.status);
+  const isInvoice = title === 'Rechnung';
+  const number = isInvoice ? (job.rechnungNummer || job.nummer) : (job.angebotNummer || job.nummer);
+  const numberLabel = isInvoice ? 'Rechnungsnummer' : title === 'Auftragsbestätigung' ? 'Auftragsnummer' : 'Angebotsnummer';
+  const dateLabel = isInvoice ? 'Rechnungsdatum' : title === 'Auftragsbestätigung' ? 'Bestätigungsdatum' : 'Angebotsdatum';
+  const docDate = isInvoice
+    ? (job.rechnungsdatum || job.createdAt)
+    : (job.angebotDatum || job.datum || job.createdAt);
+
+  const firma = settings?.firma && typeof settings.firma === 'object' && !Array.isArray(settings.firma) ? settings.firma : {};
+  const firmName = String(firma.name || settings?.firmenname || 'Handwerker-Kalkulator').trim();
+  const firmStreet = String(firma.strasse || '').trim();
+  const firmCity = [firma.plz, firma.ort].filter(Boolean).join(' ').trim();
+  const firmContact = [firma.telefon, firma.email].filter(Boolean).join(' · ');
+  const firmLegal = [
+    firma.steuernummer ? `Steuernummer ${firma.steuernummer}` : '',
+    firma.ustId ? `USt-IdNr. ${firma.ustId}` : '',
+  ].filter(Boolean).join(' · ');
+  const firmBank = firma.iban ? `IBAN ${firma.iban}` : '';
+  const firmAddress = [firmStreet, firmCity].filter(Boolean).join(', ');
+
+  const positions = Array.isArray(job.positionen) ? job.positionen : [];
+  const rows = positions.map((position, index) => {
+    const decimals = Number.isInteger(position.menge) ? 0 : 2;
+    return `
+      <tr>
+        <td class="print-table__pos">${index + 1}</td>
+        <td>
+          <span class="print-table__label">${escapeHtml(position.label || 'Position')}</span>
+          ${position.herleitung ? `<span class="print-table__derivation">${escapeHtml(position.herleitung)}</span>` : ''}
+        </td>
+        <td class="num">${formatNumber(position.menge, decimals)} ${escapeHtml(position.einheit || '')}</td>
+        <td class="num">${formatCurrency(position.einzelpreis)}</td>
+        <td class="num">${formatCurrency(position.gesamt)}</td>
+      </tr>`;
+  }).join('');
+
+  const summen = job.summen && typeof job.summen === 'object' ? job.summen : {};
+  const mwstSatz = Number(summen.mwstSatz ?? settings?.standardMwst ?? 19);
+  const summaryRow = (label, value, total = false) => `
+    <div class="print-summary__row${total ? ' print-summary__row--total' : ''}">
+      <span>${escapeHtml(label)}</span>
+      <span>${formatCurrency(value)}</span>
+    </div>`;
+  const summary = `
+    ${summaryRow('Zwischensumme', summen.zwischensumme)}
+    ${summaryRow('Anfahrt', summen.anfahrt)}
+    ${summaryRow('Marge', summen.marge)}
+    ${Number(summen.mindestpreis) > 0 ? summaryRow('Mindestpreis', summen.mindestpreis) : ''}
+    ${summaryRow('Netto', summen.netto)}
+    ${summaryRow(`MwSt. (${formatNumber(mwstSatz, 0)} %)`, summen.mwst)}
+    ${summaryRow('Gesamt', summen.gesamt, true)}`;
+
+  const days = Number(settings?.zahlungszielTage);
+  const paymentDays = Number.isFinite(days) && days >= 0 ? days : 14;
+  const paymentText = isInvoice
+    ? `Bitte überweisen Sie den Gesamtbetrag innerhalb von ${paymentDays} Tagen ohne Abzug.`
+    : `Zahlungsziel: ${paymentDays} Tage nach Auftragserteilung ohne Abzug.`;
+
+  document.title = `${title}${number ? ` ${number}` : ''} – ${firmName}`;
+  app.innerHTML = `
+    <article class="print-view">
+      <div class="print-toolbar no-print">
+        <a class="button button--ghost button--compact" href="#/vorgang/${encodeURIComponent(job.id)}">← Vorgang</a>
+        <div class="print-toolbar__actions">
+          <span class="print-toolbar__status">${escapeHtml(title)}${number ? ` · ${escapeHtml(number)}` : ''}</span>
+          ${isInvoice ? '' : '<button class="button button--ghost button--compact" type="button" data-to-invoice>Als Rechnung drucken</button>'}
+          <button class="button button--primary button--compact" type="button" data-print>Drucken</button>
+        </div>
+        <p class="print-feedback" data-print-feedback role="status"></p>
+      </div>
+
+      <header class="print-head">
+        <div class="print-firm">
+          <span class="print-firm__mark" aria-hidden="true">HK</span>
+          <div>
+            <strong>${escapeHtml(firmName)}</strong>
+            ${firmAddress ? `<p>${escapeHtml(firmAddress)}</p>` : ''}
+            ${firmContact ? `<p>${escapeHtml(firmContact)}</p>` : ''}
+          </div>
+        </div>
+        <div class="print-doc">
+          <h1>${escapeHtml(title)}</h1>
+          ${job.titel ? `<p class="print-doc__subject">${escapeHtml(job.titel)}</p>` : ''}
+          <p class="print-doc__number">${escapeHtml(numberLabel)}: ${escapeHtml(number || '–')}</p>
+          <p>${escapeHtml(dateLabel)}: ${formatDate(docDate)}</p>
+          ${isInvoice ? `<p>Leistungsdatum: ${formatDate(job.leistungsdatum || docDate)}</p>` : ''}
+          <p>Gewerk: ${escapeHtml(job.gewerkName || job.gewerkId || '–')}</p>
+        </div>
+      </header>
+
+      <section class="print-addresses">
+        <div>
+          <h2>Kunde</h2>
+          <p>${printAddressBlock(job.kunde, 'kunde')}</p>
+        </div>
+        <div>
+          <h2>Baustelle</h2>
+          <p>${printAddressBlock(job.baustelle, 'baustelle')}</p>
+        </div>
+      </section>
+
+      <table class="print-table">
+        <thead>
+          <tr><th>Pos.</th><th>Position</th><th class="num">Menge</th><th class="num">Einzelpreis</th><th class="num">Gesamt</th></tr>
+        </thead>
+        <tbody>${rows || '<tr><td colspan="5" class="print-muted">Keine Positionen gespeichert.</td></tr>'}</tbody>
+      </table>
+
+      <section class="print-summary">
+        ${summary}
+      </section>
+
+      <section class="print-payment">
+        <h2>Zahlung</h2>
+        <p>${escapeHtml(paymentText)}</p>
+      </section>
+
+      ${job.notizen ? `<section class="print-notes"><h2>Hinweise</h2><p>${escapeHtml(job.notizen)}</p></section>` : ''}
+
+      <footer class="print-footer">
+        <p>${escapeHtml(firmName)}${firmAddress ? ` · ${escapeHtml(firmAddress)}` : ''}${firmContact ? ` · ${escapeHtml(firmContact)}` : ''}</p>
+        ${firmLegal || firmBank ? `<p>${[firmLegal, firmBank].filter(Boolean).map(escapeHtml).join(' · ')}</p>` : ''}
+      </footer>
+    </article>`;
+
+  app.querySelector('[data-print]')?.addEventListener('click', () => window.print());
+  app.querySelector('[data-to-invoice]')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    const feedback = app.querySelector('[data-print-feedback]');
+    if (feedback) feedback.textContent = '';
+    try {
+      const updates = { status: 'rechnung', rechnungsdatum: todayIso(), leistungsdatum: todayIso() };
+      if (job.rechnungNummer) {
+        updates.nummer = job.rechnungNummer;
+      } else {
+        const nummer = await api.post('/api/nummern/rechnung');
+        updates.nummer = nummer.nummer;
+        updates.rechnungNummer = nummer.nummer;
+      }
+      const updated = await api.put(`/api/jobs/${encodeURIComponent(job.id)}`, updates);
+      if (token !== renderToken) return;
+      renderPrintView(updated, settings, token);
+      window.print();
+    } catch (err) {
+      button.disabled = false;
+      if (feedback) feedback.textContent = err.message || 'Die Rechnung konnte nicht angelegt werden.';
+    }
+  });
+}
+
+async function renderDruck(jobId, token) {
+  let job;
+  let settings;
+  try {
+    [job, settings] = await Promise.all([
+      api.get(`/api/jobs/${encodeURIComponent(jobId)}`),
+      api.get('/api/settings').catch(() => ({})),
+    ]);
+  } catch (err) {
+    if (err.status === 404) {
+      placeholder('Vorgang nicht gefunden', 'Dieser Vorgang existiert nicht oder wurde gelöscht.');
+      return;
+    }
+    throw err;
+  }
+  if (token !== renderToken) return;
+  job = await ensurePrintNumber(job);
+  if (token !== renderToken) return;
+  renderPrintView(job, settings, token);
+}
+
 async function renderKalkulation(packId, token, job = null) {
   const packs = await api.get('/api/trades');
   if (token !== renderToken) return;
@@ -867,6 +1164,7 @@ async function renderKalkulation(packId, token, job = null) {
 
   let currentJob = job;
   const state = createCalcState(pack);
+  const jobMeta = createJobMeta(currentJob);
   if (currentJob) applyJobState(state, currentJob);
   const draft = readDraft();
   const canOfferDraft = Boolean(draft && draft.packId === pack.id && (!draft.jobId || draft.jobId === currentJob?.id));
@@ -911,6 +1209,7 @@ async function renderKalkulation(packId, token, job = null) {
       </label>
       <div class="calc-actions__buttons">
         <button class="button button--primary" type="button" data-save-job>${currentJob ? 'Aktualisieren' : 'Speichern'}</button>
+        <button class="button button--ghost" type="button" data-print-job>${['rechnung', 'abgeschlossen'].includes(currentJob?.status) ? 'Rechnung drucken' : 'Angebot drucken'}</button>
         <a class="button button--ghost" href="#/vorgaenge">Vorgangsliste</a>
       </div>
       <p class="save-status" data-save-status role="status"></p>
@@ -926,6 +1225,7 @@ async function renderKalkulation(packId, token, job = null) {
             ${inputs.map((input) => renderField(input, 'eingaben', state.eingaben[input.id])).join('') || '<p class="muted">Keine Eingaben nötig.</p>'}
           </div>
         </section>
+        ${renderMetaPanel(jobMeta)}
         ${factors.length ? `
           <section class="panel">
             <div class="panel__head">
@@ -954,8 +1254,17 @@ async function renderKalkulation(packId, token, job = null) {
   const result = document.getElementById('calc-result');
   const titleInput = document.querySelector('[data-job-title]');
   const saveButton = document.querySelector('[data-save-job]');
+  const printButton = document.querySelector('[data-print-job]');
   const saveStatus = document.querySelector('[data-save-status]');
   let hasInteracted = false;
+
+  const readJobMeta = () => {
+    for (const el of form.querySelectorAll('[data-meta]')) {
+      const [group, key] = el.dataset.meta.split('.');
+      if (!jobMeta[group]) continue;
+      jobMeta[group][key] = el.value.trim();
+    }
+  };
 
   const setSaveStatus = (message, type = '') => {
     if (!saveStatus) return;
@@ -973,6 +1282,10 @@ async function renderKalkulation(packId, token, job = null) {
         eingaben: { ...state.eingaben },
         faktoren: { ...state.faktoren },
         preise: { ...state.preise },
+      },
+      meta: {
+        kunde: { ...jobMeta.kunde },
+        baustelle: { ...jobMeta.baustelle },
       },
       savedAt: new Date().toISOString(),
     });
@@ -1001,10 +1314,12 @@ async function renderKalkulation(packId, token, job = null) {
 
   form.addEventListener('input', () => {
     markInteraction();
+    readJobMeta();
     recalc();
   });
   form.addEventListener('change', () => {
     markInteraction();
+    readJobMeta();
     recalc();
   });
   titleInput?.addEventListener('input', () => {
@@ -1030,7 +1345,13 @@ async function renderKalkulation(packId, token, job = null) {
     const info = draftBanner.querySelector('[data-draft-info]');
     if (info) info.textContent = `Gesichert am ${draftTime(draft.savedAt)}.`;
     draftBanner.querySelector('[data-draft-restore]')?.addEventListener('click', () => {
-      applyDraftToForm(form, state, draft, titleInput);
+      applyDraftToForm(form, state, draft, titleInput, jobMeta);
+      const metaPanel = form.querySelector('[data-meta-panel]');
+      if (metaPanel) {
+        metaPanel.setAttribute('open', '');
+        const hint = metaPanel.querySelector('summary .muted');
+        if (hint) hint.textContent = 'Für den Druck hinterlegt';
+      }
       hasInteracted = true;
       draftBanner.hidden = true;
       setSaveStatus('Entwurf wiederhergestellt.', 'success');
@@ -1043,11 +1364,17 @@ async function renderKalkulation(packId, token, job = null) {
     });
   }
 
-  saveButton?.addEventListener('click', async () => {
+  const updatePrintButton = () => {
+    if (!printButton) return;
+    printButton.textContent = ['rechnung', 'abgeschlossen'].includes(currentJob?.status) ? 'Rechnung drucken' : 'Angebot drucken';
+  };
+
+  const saveJob = async () => {
+    readJobMeta();
     if (!syncState(form, state)) {
       showResultMessage(result, 'Bitte korrigiere die markierten Felder.');
       setSaveStatus('Bitte Eingaben prüfen.', 'error');
-      return;
+      return null;
     }
 
     let snapshot;
@@ -1055,7 +1382,7 @@ async function renderKalkulation(packId, token, job = null) {
       snapshot = calculate(pack, state);
     } catch (err) {
       setSaveStatus(err instanceof FormulaError ? err.message : 'Die Berechnung ist nicht möglich.', 'error');
-      return;
+      return null;
     }
 
     saveButton.disabled = true;
@@ -1064,6 +1391,9 @@ async function renderKalkulation(packId, token, job = null) {
       titel: titleInput?.value.trim() || pack.name,
       gewerkId: pack.id,
       gewerkName: pack.name,
+      kunde: { ...jobMeta.kunde },
+      baustelle: { ...jobMeta.baustelle },
+      datum: currentJob?.datum || todayIso(),
       eingaben: { ...state.eingaben },
       faktoren: { ...state.faktoren },
       preise: { ...state.preise },
@@ -1075,21 +1405,31 @@ async function renderKalkulation(packId, token, job = null) {
       const saved = currentJob
         ? await api.put(`/api/jobs/${encodeURIComponent(currentJob.id)}`, payload)
         : await api.post('/api/jobs', payload);
-      if (token !== renderToken) return;
+      if (token !== renderToken) return null;
       currentJob = saved;
       clearDraft();
       saveButton.textContent = 'Aktualisieren';
+      updatePrintButton();
       if (saveStatus) {
         saveStatus.innerHTML = 'Gespeichert. <a href="#/vorgaenge">Zur Vorgangsliste</a>';
         saveStatus.dataset.type = 'success';
       }
       history.replaceState(null, '', `#/vorgang/${encodeURIComponent(saved.id)}`);
       setActiveNav(`/vorgang/${saved.id}`);
+      return saved;
     } catch (err) {
       setSaveStatus(err.message || 'Der Vorgang konnte nicht gespeichert werden.', 'error');
+      return null;
     } finally {
       saveButton.disabled = false;
     }
+  };
+
+  saveButton?.addEventListener('click', saveJob);
+  printButton?.addEventListener('click', async () => {
+    const saved = await saveJob();
+    if (!saved) return;
+    location.hash = `#/vorgang/${encodeURIComponent(saved.id)}/drucken`;
   });
 
   recalc();
@@ -1123,6 +1463,7 @@ function renderHelp() {
 async function router() {
   const token = ++renderToken;
   const route = (location.hash || '#/').slice(1) || '/';
+  document.title = DEFAULT_TITLE;
   stopMeasure();
   setActiveNav(route);
   try {
@@ -1138,6 +1479,15 @@ async function router() {
       else placeholder('Kalkulation', 'Bitte wähle ein Gewerk aus.');
     } else if (route === '/vorgaenge') {
       await renderVorgaenge(token);
+    } else if (/^\/vorgang\/[^/]+\/drucken$/.test(route)) {
+      let id = '';
+      try {
+        id = decodeURIComponent(route.slice('/vorgang/'.length, -'/drucken'.length));
+      } catch {
+        id = '';
+      }
+      if (id) await renderDruck(id, token);
+      else placeholder('Druckansicht', 'Dieser Vorgang existiert nicht.');
     } else if (/^\/vorgang\/[^/]+$/.test(route)) {
       let id = '';
       try {
