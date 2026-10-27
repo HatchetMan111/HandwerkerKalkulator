@@ -304,7 +304,7 @@ fi
 pct push "$CT_ID" "$APP_TARBALL" "/tmp/${APP}-src.tar.gz"
 rm -f "$APP_TARBALL"
 
-pct exec "$CT_ID" -- command -v tar >/dev/null 2>&1 \
+pct exec "$CT_ID" -- tar --version >/dev/null 2>&1 \
   || { msg_error "tar fehlt im Container."; exit 1; }
 
 pct exec "$CT_ID" -- bash -c '
