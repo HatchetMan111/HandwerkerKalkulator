@@ -1,0 +1,22 @@
+[Unit]
+Description=Handwerker-Kalkulator – Angebots- und Mengenrechner
+Documentation=https://github.com/HatchetMan111/HandwerkerKalkulator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=handwerker
+Group=handwerker
+WorkingDirectory=/opt/handwerker-kalkulator
+Environment=NODE_ENV=production
+Environment=PORT=8090
+Environment=DATA_DIR=/var/lib/handwerker-kalkulator
+ExecStart=/usr/bin/node /opt/handwerker-kalkulator/server/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
