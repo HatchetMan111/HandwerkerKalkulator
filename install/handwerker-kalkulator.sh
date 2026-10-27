@@ -252,37 +252,70 @@ msg_ok "Container-IP: $CT_IP"
 # DNS im Container sicherstellen
 # ---------------------------------------------------------------------------
 configure_container_dns() {
-  local candidates=() ns gateway
-  dns_works() { pct exec "$CT_ID" -- getent hosts deb.debian.org >/dev/null 2>&1; }
+  local candidates=() ns gateway entry
 
-  if dns_works; then
-    msg_ok "DNS im Container funktioniert."
-    return 0
-  fi
+  # IPv4-Auflösung für die Domains, die apt/git/nodesource wirklich brauchen.
+  # shellcheck disable=SC2016
+  dns_works() {
+    pct exec "$CT_ID" -- bash -c '
+      for host in deb.debian.org security.debian.org deb.nodesource.com github.com; do
+        getent ahostsv4 "$host" >/dev/null 2>&1 || exit 1
+      done
+    '
+  }
 
+  # Mehrfachtest: ein einzelner Treffer reicht nicht, DHCP-DNS kann flattern.
+  dns_stable() {
+    dns_works || return 1
+    sleep 0.2
+    dns_works || return 1
+    sleep 0.2
+    dns_works
+  }
+
+  # 1) explizit angegebener DNS, 2) aktueller Container-DNS, 3) Host-DNS,
+  # 4) Gateway, 5) öffentliche Fallbacks.
   [[ -n "$DNS_ARG" ]] && candidates+=("$DNS_ARG")
-  while IFS= read -r ns; do
-    [[ "$ns" =~ ^127\. || "$ns" == "::1" ]] && continue
-    candidates+=("$ns")
+  # shellcheck disable=SC2016
+  while IFS= read -r entry; do
+    [[ "$entry" =~ ^127\. || "$entry" == "::1" ]] && continue
+    candidates+=("$entry")
+  done < <(pct exec "$CT_ID" -- awk '$1 == "nameserver" {print $2}' /etc/resolv.conf 2>/dev/null || true)
+  while IFS= read -r entry; do
+    [[ "$entry" =~ ^127\. || "$entry" == "::1" ]] && continue
+    candidates+=("$entry")
   done < <(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf 2>/dev/null || true)
   gateway="$(pct exec "$CT_ID" -- ip route show default 2>/dev/null | awk '{print $3; exit}' || true)"
   [[ -n "$gateway" ]] && candidates+=("$gateway")
   candidates+=("1.1.1.1" "8.8.8.8")
 
-  msg_warn "DNS-Auflösung im Container fehlgeschlagen – teste Nameserver ..."
+  msg_info "Prüfe stabile DNS-Auflösung im Container ..."
   for ns in "${candidates[@]}"; do
     [[ -n "$ns" ]] || continue
     msg_info "Teste DNS ${ns} ..."
     # shellcheck disable=SC2016
     pct exec "$CT_ID" -- bash -c 'printf "nameserver %s\n" "$1" > /etc/resolv.conf' _ "$ns" || continue
-    if dns_works; then
+    if dns_stable; then
       pct set "$CT_ID" --nameserver "$ns" >/dev/null 2>&1 || msg_warn "DNS konnte nicht dauerhaft in der CT-Config gesetzt werden."
-      msg_ok "DNS im Container: ${ns}"
+      # DHCP soll den Nameserver nicht mehr überschreiben.
+      if pct exec "$CT_ID" -- test -d /etc/dhcp/dhclient-enter-hooks.d 2>/dev/null; then
+        # shellcheck disable=SC2016
+        pct exec "$CT_ID" -- env HK_DNS="$ns" bash -c '
+          cat > /etc/dhcp/dhclient-enter-hooks.d/handwerker-dns <<"EOF"
+case "${reason:-}" in
+BOUND|RENEW|REBIND|REBOOT)
+  new_domain_name_servers="${HK_DNS}"
+  ;;
+esac
+EOF
+        ' || true
+      fi
+      msg_ok "Stabiles DNS im Container: ${ns}"
       return 0
     fi
   done
 
-  msg_error "Keine DNS-Auflösung im Container möglich. Bitte --dns <IP> angeben oder Host-DNS prüfen."
+  msg_error "Keine stabile IPv4-DNS-Auflösung im Container möglich. Bitte --dns <IP> angeben oder Host-DNS prüfen."
   msg_error "Aktuelle Container-DNS/Konfiguration:"
   pct exec "$CT_ID" -- cat /etc/resolv.conf 2>/dev/null || true
   pct exec "$CT_ID" -- ip route 2>/dev/null || true
@@ -311,10 +344,10 @@ msg_info "Installiere Node.js 22 und Basiswerkzeuge im Container ..."
 pct exec "$CT_ID" -- bash -c '
   set -euo pipefail
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update
-  apt-get install -y curl ca-certificates git tar
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+  apt-get -o Acquire::Retries=5 update
+  apt-get -o Acquire::Retries=5 install -y curl ca-certificates git tar
+  curl -fsSL --retry 5 --retry-delay 2 https://deb.nodesource.com/setup_22.x | bash -
+  apt-get -o Acquire::Retries=5 install -y nodejs
   node --version
   getent group handwerker >/dev/null 2>&1 || groupadd --system handwerker
   id -u handwerker >/dev/null 2>&1 || useradd --system --gid handwerker --home-dir /var/lib/handwerker-kalkulator --shell /usr/sbin/nologin handwerker
