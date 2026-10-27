@@ -240,7 +240,7 @@ Tests:
 
 ```bash
 npm test
-# derzeit alternativ direkt:
+# oder direkt:
 node --test
 ```
 
