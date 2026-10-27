@@ -34,6 +34,10 @@ Einzeiler auf dem **Proxmox-Host**:
 bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HandwerkerKalkulator/main/install/handwerker-kalkulator.sh)"
 ```
 
+Der Installer lädt Node.js und die App auf dem Proxmox-Host und schiebt sie
+in den Container. Im Container wird kein `apt` und kein DNS für die
+Installation benötigt.
+
 Alternativ herunterladen und mit Optionen starten:
 
 ```bash

@@ -248,122 +248,6 @@ done
 [[ -n "$CT_IP" ]] || { msg_error "Keine Container-IP – Netzwerk/Bridge prüfen."; exit 1; }
 msg_ok "Container-IP: $CT_IP"
 
-# ---------------------------------------------------------------------------
-# DNS im Container sicherstellen
-# ---------------------------------------------------------------------------
-configure_container_dns() {
-  local candidates=() ns gateway entry
-
-  # IPv4-Auflösung für die Domains, die apt/git/nodesource wirklich brauchen.
-  # shellcheck disable=SC2016
-  dns_works() {
-    pct exec "$CT_ID" -- bash -c '
-      for host in deb.debian.org security.debian.org deb.nodesource.com github.com; do
-        getent ahostsv4 "$host" >/dev/null 2>&1 || exit 1
-      done
-    '
-  }
-
-  # Mehrfachtest: ein einzelner Treffer reicht nicht, DHCP-DNS kann flattern.
-  dns_stable() {
-    dns_works || return 1
-    sleep 0.2
-    dns_works || return 1
-    sleep 0.2
-    dns_works
-  }
-
-  # 1) explizit angegebener DNS, 2) aktueller Container-DNS, 3) Host-DNS,
-  # 4) Gateway, 5) öffentliche Fallbacks.
-  [[ -n "$DNS_ARG" ]] && candidates+=("$DNS_ARG")
-  # shellcheck disable=SC2016
-  while IFS= read -r entry; do
-    [[ "$entry" =~ ^127\. || "$entry" == "::1" ]] && continue
-    candidates+=("$entry")
-  done < <(pct exec "$CT_ID" -- awk '$1 == "nameserver" {print $2}' /etc/resolv.conf 2>/dev/null || true)
-  while IFS= read -r entry; do
-    [[ "$entry" =~ ^127\. || "$entry" == "::1" ]] && continue
-    candidates+=("$entry")
-  done < <(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf 2>/dev/null || true)
-  gateway="$(pct exec "$CT_ID" -- ip route show default 2>/dev/null | awk '{print $3; exit}' || true)"
-  [[ -n "$gateway" ]] && candidates+=("$gateway")
-  candidates+=("1.1.1.1" "8.8.8.8")
-
-  msg_info "Prüfe stabile DNS-Auflösung im Container ..."
-  for ns in "${candidates[@]}"; do
-    [[ -n "$ns" ]] || continue
-    msg_info "Teste DNS ${ns} ..."
-    # shellcheck disable=SC2016
-    pct exec "$CT_ID" -- bash -c 'printf "nameserver %s\n" "$1" > /etc/resolv.conf' _ "$ns" || continue
-    if dns_stable; then
-      pct set "$CT_ID" --nameserver "$ns" >/dev/null 2>&1 || msg_warn "DNS konnte nicht dauerhaft in der CT-Config gesetzt werden."
-      # DHCP soll den Nameserver nicht mehr überschreiben.
-      if pct exec "$CT_ID" -- test -d /etc/dhcp/dhclient-enter-hooks.d 2>/dev/null; then
-        # shellcheck disable=SC2016
-        pct exec "$CT_ID" -- env HK_DNS="$ns" bash -c '
-          cat > /etc/dhcp/dhclient-enter-hooks.d/handwerker-dns <<"EOF"
-case "${reason:-}" in
-BOUND|RENEW|REBIND|REBOOT)
-  new_domain_name_servers="${HK_DNS}"
-  ;;
-esac
-EOF
-        ' || true
-      fi
-      msg_ok "Stabiles DNS im Container: ${ns}"
-      return 0
-    fi
-  done
-
-  msg_error "Keine stabile IPv4-DNS-Auflösung im Container möglich. Bitte --dns <IP> angeben oder Host-DNS prüfen."
-  msg_error "Aktuelle Container-DNS/Konfiguration:"
-  pct exec "$CT_ID" -- cat /etc/resolv.conf 2>/dev/null || true
-  pct exec "$CT_ID" -- ip route 2>/dev/null || true
-  return 1
-}
-configure_container_dns
-
-# Der Container kann per DNS flattern. Für die Installation bauen wir die
-# Container-/etc/hosts auf dem Host und schieben sie zurück in den Container.
-seed_container_hosts() {
-  local tmp host ip
-  tmp="$(mktemp)"
-  pct pull "$CT_ID" /etc/hosts "$tmp" 2>/dev/null || : > "$tmp"
-
-  grep -qE '^127\.0\.0\.1[[:space:]]+localhost' "$tmp" 2>/dev/null || echo "127.0.0.1 localhost" >> "$tmp"
-  grep -qE '^::1[[:space:]]+localhost' "$tmp" 2>/dev/null || echo "::1 localhost ip6-localhost ip6-loopback" >> "$tmp"
-  grep -qE "^127\.0\.1\.1[[:space:]]+${CT_HOSTNAME}" "$tmp" 2>/dev/null || echo "127.0.1.1 ${CT_HOSTNAME}" >> "$tmp"
-
-  while IFS= read -r host; do
-    ip="$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR == 1 {print $1}' || true)"
-    [[ -n "$ip" ]] || { msg_warn "Host-DNS konnte ${host} nicht auflösen – überspringe Eintrag."; continue; }
-    grep -qE "^[^#]*[[:space:]]+${host}[[:space:]]*$" "$tmp" 2>/dev/null || echo "${ip} ${host}" >> "$tmp"
-  done <<'HOSTS'
-deb.debian.org
-security.debian.org
-deb.nodesource.com
-github.com
-HOSTS
-
-  pct push "$CT_ID" "$tmp" /etc/hosts || { msg_error "Konnte /etc/hosts nicht in den Container schreiben."; rm -f "$tmp"; return 1; }
-  rm -f "$tmp"
-  msg_ok "Repositorien aus Host-DNS in /etc/hosts gepinnt."
-
-  for host in deb.debian.org security.debian.org deb.nodesource.com github.com; do
-    if ! pct exec "$CT_ID" -- getent ahostsv4 "$host" >/dev/null 2>&1; then
-      msg_error "Container kann ${host} auch über /etc/hosts nicht auflösen."
-      pct exec "$CT_ID" -- cat /etc/hosts 2>/dev/null || true
-      pct exec "$CT_ID" -- cat /etc/resolv.conf 2>/dev/null || true
-      return 1
-    fi
-  done
-  msg_ok "Container löst die Installations-Hosts über /etc/hosts auf."
-  return 0
-}
-seed_container_hosts
-
-pct exec "$CT_ID" -- bash -c 'printf "Acquire::ForceIPv4 \"true\";\n" > /etc/apt/apt.conf.d/99force-ipv4' 2>/dev/null || true
-
 if [[ -n "$SSH_KEY_ARG" ]]; then
   [[ -f "$SSH_KEY_ARG" ]] || { msg_error "SSH-Key nicht gefunden: $SSH_KEY_ARG"; exit 1; }
   pct exec "$CT_ID" -- mkdir -p /root/.ssh
@@ -381,61 +265,74 @@ fi
 # ---------------------------------------------------------------------------
 # Node.js 22 und Systembenutzer im Container
 # ---------------------------------------------------------------------------
-msg_info "Installiere Node.js 22 und Basiswerkzeuge im Container ..."
+# Node.js 22 + Appquelle werden auf dem Host geladen und in den Container
+# geschoben. So ist die Installation unabhängig von DNS/apt im Container.
+fetch_file() {
+  local url="$1" dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 5 --retry-delay 2 -o "$dest" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$dest" "$url"
+  else
+    msg_error "Weder curl noch wget auf dem Host gefunden."
+    return 1
+  fi
+}
+
+msg_info "Installiere Node.js 22 im Container (Host-seitige Quelle) ..."
+NODE_DIST_URL="https://nodejs.org/dist/latest-v22.x/"
+NODE_TARBALL_NAME="$(fetch_file "$NODE_DIST_URL" - | sed -n 's/.*\(node-v22\.[0-9][0-9]*\.[0-9][0-9]*-linux-x64\.tar\.gz\).*/\1/p' | head -n1)"
+[[ -n "$NODE_TARBALL_NAME" ]] || { msg_error "Node.js-Tarball konnte nicht ermittelt werden."; exit 1; }
+NODE_TARBALL="$(mktemp "/tmp/${APP}-node-XXXXXX.tar.gz")"
+fetch_file "${NODE_DIST_URL}${NODE_TARBALL_NAME}" "$NODE_TARBALL"
+pct push "$CT_ID" "$NODE_TARBALL" "/tmp/${APP}-node.tar.gz"
+rm -f "$NODE_TARBALL"
+
+if [[ -n "$LOCAL_SRC" ]]; then
+  msg_info "Übertrage lokale Quelle nach ${APP_DIR} ..."
+  APP_TARBALL="$(mktemp "/tmp/${APP}-src-XXXXXX.tar.gz")"
+  tar -C "$LOCAL_SRC" \
+    --exclude=.git --exclude=node_modules --exclude=.superpowers --exclude=data \
+    -czf "$APP_TARBALL" .
+else
+  msg_info "Hole App aus ${REPO_URL} (${BRANCH}) ..."
+  REPO_URL="${REPO_URL%/}"
+  REPO_URL="${REPO_URL%.git}"
+  APP_TARBALL="$(mktemp "/tmp/${APP}-src-XXXXXX.tar.gz")"
+  fetch_file "${REPO_URL}/archive/refs/heads/${BRANCH}.tar.gz" "$APP_TARBALL"
+fi
+pct push "$CT_ID" "$APP_TARBALL" "/tmp/${APP}-src.tar.gz"
+rm -f "$APP_TARBALL"
+
+pct exec "$CT_ID" -- command -v tar >/dev/null 2>&1 \
+  || { msg_error "tar fehlt im Container."; exit 1; }
+
 pct exec "$CT_ID" -- bash -c '
   set -euo pipefail
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get -o Acquire::Retries=5 update
-  apt-get -o Acquire::Retries=5 install -y curl ca-certificates git tar
-  curl -fsSL --retry 5 --retry-delay 2 https://deb.nodesource.com/setup_22.x | bash -
-  apt-get -o Acquire::Retries=5 install -y nodejs
+  rm -rf /opt/node
+  mkdir -p /opt/node
+  tar -xzf /tmp/handwerker-kalkulator-node.tar.gz -C /opt/node --strip-components=1
+  ln -sfn /opt/node/bin/node /usr/bin/node
+  rm -f /tmp/handwerker-kalkulator-node.tar.gz
   node --version
+'
+msg_ok "Node.js $(pct exec "$CT_ID" -- node --version) installiert."
+
+pct exec "$CT_ID" -- bash -c '
+  set -euo pipefail
   getent group handwerker >/dev/null 2>&1 || groupadd --system handwerker
   id -u handwerker >/dev/null 2>&1 || useradd --system --gid handwerker --home-dir /var/lib/handwerker-kalkulator --shell /usr/sbin/nologin handwerker
   mkdir -p /opt/handwerker-kalkulator /var/lib/handwerker-kalkulator
   chown -R handwerker:handwerker /var/lib/handwerker-kalkulator
   chmod 750 /var/lib/handwerker-kalkulator
 '
-msg_ok "Node.js $(pct exec "$CT_ID" -- node --version) installiert."
-
-# ---------------------------------------------------------------------------
-# App holen
-# ---------------------------------------------------------------------------
-if [[ -n "$LOCAL_SRC" ]]; then
-  msg_info "Übertrage lokale Quelle nach ${APP_DIR} ..."
-  TMP_TAR="$(mktemp "/tmp/${APP}-src-XXXXXX.tar.gz")"
-  tar -C "$LOCAL_SRC" \
-    --exclude=.git --exclude=node_modules --exclude=.superpowers --exclude=data \
-    -czf "$TMP_TAR" .
-  pct push "$CT_ID" "$TMP_TAR" "/tmp/${APP}-src.tar.gz"
-  rm -f "$TMP_TAR"
-  pct exec "$CT_ID" -- bash -c '
-    set -euo pipefail
-    rm -rf /opt/handwerker-kalkulator
-    mkdir -p /opt/handwerker-kalkulator
-    tar -xzf /tmp/handwerker-kalkulator-src.tar.gz -C /opt/handwerker-kalkulator
-    rm -f /tmp/handwerker-kalkulator-src.tar.gz
-  '
-else
-  msg_info "Hole App aus ${REPO_URL} (${BRANCH}) ..."
-  # shellcheck disable=SC2016
-  pct exec "$CT_ID" -- env REPO_URL="$REPO_URL" BRANCH="$BRANCH" APP_DIR="$APP_DIR" bash -c '
-    set -euo pipefail
-    if [ -d "$APP_DIR/.git" ]; then
-      git -C "$APP_DIR" remote set-url origin "$REPO_URL"
-      git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
-      git -C "$APP_DIR" checkout -B "$BRANCH" "origin/$BRANCH"
-      git -C "$APP_DIR" reset --hard "origin/$BRANCH"
-      git -C "$APP_DIR" clean -fdx
-    else
-      rm -rf "$APP_DIR"
-      git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
-    fi
-  '
-fi
 
 pct exec "$CT_ID" -- bash -c '
   set -euo pipefail
+  rm -rf /opt/handwerker-kalkulator
+  mkdir -p /opt/handwerker-kalkulator
+  tar -xzf /tmp/handwerker-kalkulator-src.tar.gz -C /opt/handwerker-kalkulator --strip-components=1
+  rm -f /tmp/handwerker-kalkulator-src.tar.gz
   test -f /opt/handwerker-kalkulator/server/server.js
   test -f /opt/handwerker-kalkulator/app/index.html
   chown -R root:handwerker /opt/handwerker-kalkulator
@@ -494,9 +391,14 @@ pct exec "$CT_ID" -- systemctl is-active --quiet "$APP" \
 HEALTH_CODE="000"
 ROOT_CODE="000"
 for _ in $(seq 1 30); do
-  HEALTH_CODE="$(pct exec "$CT_ID" -- curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${APP_PORT}/api/health" 2>/dev/null || true)"
+  if command -v curl >/dev/null 2>&1; then
+    HEALTH_CODE="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 "http://${CT_IP}:${APP_PORT}/api/health" 2>/dev/null || true)"
+    ROOT_CODE="$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 "http://${CT_IP}:${APP_PORT}/" 2>/dev/null || true)"
+  elif command -v wget >/dev/null 2>&1; then
+    HEALTH_CODE="$(wget -qO /dev/null -S "http://${CT_IP}:${APP_PORT}/api/health" 2>&1 | awk '/HTTP\// {print $2; exit}')"
+    ROOT_CODE="$(wget -qO /dev/null -S "http://${CT_IP}:${APP_PORT}/" 2>&1 | awk '/HTTP\// {print $2; exit}')"
+  fi
   HEALTH_CODE="${HEALTH_CODE:-000}"
-  ROOT_CODE="$(pct exec "$CT_ID" -- curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${APP_PORT}/" 2>/dev/null || true)"
   ROOT_CODE="${ROOT_CODE:-000}"
   if [[ "$HEALTH_CODE" == "200" && "$ROOT_CODE" == "200" ]]; then
     break
