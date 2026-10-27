@@ -20,6 +20,56 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => 
 
 const normalise = (value) => String(value ?? '').toLocaleLowerCase('de-DE');
 
+const newId = (prefix) => `${prefix}_${typeof globalThis.crypto?.randomUUID === 'function' ? globalThis.crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10)}`;
+
+const PRESET_ARTEN = {
+  transport: [
+    { key: 'volumenProFahrt', label: 'Volumen pro Fahrt', einheit: 'm³' },
+    { key: 'gewichtProFahrt', label: 'Gewicht pro Fahrt', einheit: 't' },
+    { key: 'preisProFahrt', label: 'Preis pro Fahrt', einheit: '€' },
+  ],
+  container: [
+    { key: 'volumenProContainer', label: 'Volumen pro Container', einheit: 'm³' },
+    { key: 'preisProContainer', label: 'Preis pro Container', einheit: '€' },
+  ],
+  material: [
+    { key: 'einheit', label: 'Einheit', einheit: '', type: 'text' },
+    { key: 'preisProEinheit', label: 'Preis pro Einheit', einheit: '€' },
+  ],
+  stunden: [{ key: 'preisProEinheit', label: 'Preis pro Stunde', einheit: '€' }],
+  pauschal: [{ key: 'preisProEinheit', label: 'Preis pauschal', einheit: '€' }],
+};
+
+const DEFAULT_SETTINGS = {
+  firma: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', steuernummer: '', ustId: '', iban: '' },
+  standardMwst: 19,
+  dezimalstellen: 2,
+  theme: 'system',
+  reduzierteBewegung: false,
+  autosave: true,
+  angebotsPrefix: 'A',
+  rechnungsPrefix: 'R',
+  zahlungszielTage: 14,
+};
+
+function normaliseSettings(raw) {
+  const settings = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    ...DEFAULT_SETTINGS,
+    ...settings,
+    firma: { ...DEFAULT_SETTINGS.firma, ...(settings.firma && typeof settings.firma === 'object' ? settings.firma : {}) },
+  };
+}
+
+let appSettings = normaliseSettings({});
+
+function applyTheme(theme) {
+  const value = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+  if (value === 'system') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = value;
+  document.documentElement.style.colorScheme = value === 'system' ? 'light dark' : value;
+}
+
 const inputValue = (value) => {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).replace('.', ',');
   return String(value ?? '');
@@ -505,14 +555,14 @@ function renderField(item, scope, value, options = {}) {
 }
 
 function createCalcState(pack) {
-  const state = { eingaben: {}, faktoren: {}, preise: {} };
+  const state = { eingaben: {}, faktoren: {}, preise: {}, ressourcen: {} };
   for (const input of pack.eingaben || []) {
     state.eingaben[input.id] = input.standard ?? (input.art === 'auswahl' ? '' : 0);
   }
   for (const factor of pack.faktoren || []) {
     state.faktoren[factor.id] = factor.standard ?? 0;
   }
-  state.preise.mwst = pack.preise?.mwst ?? 19;
+  state.preise.mwst = pack.preise?.mwst ?? appSettings.standardMwst ?? 19;
   state.preise.marge = pack.preise?.marge ?? 0;
   if (pack.preise?.anfahrt && !('anfahrtKm' in state.eingaben)) state.eingaben.anfahrtKm = 0;
   return state;
@@ -676,6 +726,11 @@ function draftTime(iso) {
 }
 
 function applyJobState(state, job) {
+  if (job?.ressourcen && typeof job.ressourcen === 'object' && !Array.isArray(job.ressourcen)) {
+    for (const [id, value] of Object.entries(job.ressourcen)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) state.ressourcen[id] = { ...value };
+    }
+  }
   for (const scope of ['eingaben', 'faktoren', 'preise']) {
     const values = job?.[scope];
     if (!values || typeof values !== 'object' || Array.isArray(values)) continue;
@@ -695,6 +750,11 @@ function applyDraftToForm(form, state, draft, titleInput, jobMeta) {
       if (!el) continue;
       el.value = el.tagName === 'SELECT' ? value : inputValue(value);
       state[scope][id] = value;
+    }
+  }
+  if (draft.state?.ressourcen && typeof draft.state.ressourcen === 'object' && !Array.isArray(draft.state.ressourcen)) {
+    for (const [id, value] of Object.entries(draft.state.ressourcen)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) state.ressourcen[id] = { ...value };
     }
   }
   for (const group of ['kunde', 'baustelle']) {
@@ -1153,8 +1213,115 @@ async function renderDruck(jobId, token) {
   renderPrintView(job, settings, token);
 }
 
+function presetResource(pack, preset) {
+  return (pack.ressourcen || []).find((resource) => resource.art === preset.art) || null;
+}
+
+function toolsPanelHtml(pack, presets, pricelists) {
+  const arten = new Set((pack.ressourcen || []).map((resource) => resource.art));
+  const usable = (presets || []).filter((preset) => preset && arten.has(preset.art));
+  const materials = (pack.ressourcen || []).filter((resource) => resource.art === 'material');
+  const prices = (pricelists || []).flatMap((list) => (list.positionen || []).map((position) => ({
+    key: `${list.id}::${position.id}`,
+    label: `${list.lieferant || 'Preisliste'} · ${position.bezeichnung || 'Position'} (${formatCurrency(position.preis)} / ${position.einheit || 'Einheit'})`,
+  })));
+  if (usable.length === 0 && (materials.length === 0 || prices.length === 0)) return '';
+
+  const presetOptions = usable.map((preset) => `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.name || 'Vorlage')} · ${escapeHtml(preset.art)}</option>`).join('');
+  const priceOptions = prices.map((entry) => `<option value="${escapeHtml(entry.key)}">${escapeHtml(entry.label)}</option>`).join('');
+  const materialOptions = materials.map((resource) => `<option value="${escapeHtml(resource.id)}">${escapeHtml(resource.label || resource.id)}</option>`).join('');
+
+  return `
+    <section class="panel">
+      <div class="panel__head">
+        <div><h2>Vorlagen & Preislisten</h2><p>Werte in die Kalkulation übernehmen</p></div>
+      </div>
+      <div class="tool-grid">
+        ${usable.length ? `
+          <div class="tool-block">
+            <h3>Vorlage</h3>
+            <div class="tool-row">
+              <select class="field__input" data-preset-select aria-label="Vorlage auswählen">${presetOptions}</select>
+              <button class="button button--ghost button--compact" type="button" data-preset-apply>Übernehmen</button>
+            </div>
+          </div>` : ''}
+        ${materials.length && prices.length ? `
+          <div class="tool-block">
+            <h3>Preisliste</h3>
+            <div class="tool-row">
+              <select class="field__input" data-price-select aria-label="Preislistenposition auswählen">${priceOptions}</select>
+              <select class="field__input" data-price-resource aria-label="Materialposition auswählen">${materialOptions}</select>
+              <button class="button button--ghost button--compact" type="button" data-price-apply>Preis übernehmen</button>
+            </div>
+          </div>` : ''}
+      </div>
+      <p class="tool-message" data-tools-state></p>
+      <p class="tool-message" data-tools-message role="status"></p>
+    </section>`;
+}
+
+function fotoPanelHtml(job) {
+  if (!job) {
+    return `
+      <div class="panel__head">
+        <div><h2>Fotos</h2><p>Speichere den Vorgang, um Fotos hinzuzufügen</p></div>
+      </div>
+      <p class="muted">Fotos werden lokal beim Vorgang abgelegt.</p>`;
+  }
+  const fotos = Array.isArray(job.fotos) ? job.fotos : [];
+  const cards = fotos.map((foto) => {
+    const url = foto.url || `/api/fotos/${encodeURIComponent(job.id)}/${encodeURIComponent(foto.datei)}`;
+    return `
+      <figure class="photo-card">
+        <img src="${escapeHtml(url)}" alt="${escapeHtml(foto.name || 'Vorgangsfoto')}" loading="lazy">
+        <figcaption>
+          <span>${escapeHtml(foto.name || 'Foto')}</span>
+          <button class="button button--ghost button--compact button--danger" type="button" data-foto-delete="${escapeHtml(foto.datei)}">Entfernen</button>
+        </figcaption>
+      </figure>`;
+  }).join('');
+  return `
+    <div class="panel__head">
+      <div><h2>Fotos</h2><p>${fotos.length} von 6 · Kamera oder Datei</p></div>
+    </div>
+    ${cards ? `<div class="photo-grid">${cards}</div>` : '<p class="muted">Noch keine Fotos hinterlegt.</p>'}
+    <label class="button button--ghost button--compact photo-add">
+      ${fotos.length >= 6 ? 'Maximal 6 Fotos' : 'Foto hinzufügen'}
+      <input type="file" accept="image/*" capture="environment" data-foto-input ${fotos.length >= 6 ? 'disabled' : ''} hidden>
+    </label>
+    <p class="field__help">Bilder werden auf maximal 1280 px verkleinert und als JPEG gespeichert.</p>
+    <p class="job-feedback" data-foto-feedback role="status"></p>`;
+}
+
+function resizeImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const max = 1280;
+      const scale = Math.min(1, max / Math.max(image.width, image.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Das Bild konnte nicht gelesen werden.'));
+    };
+    image.src = url;
+  });
+}
+
 async function renderKalkulation(packId, token, job = null) {
-  const packs = await api.get('/api/trades');
+  const [packs, presets, pricelists] = await Promise.all([
+    api.get('/api/trades'),
+    api.get('/api/presets').catch(() => []),
+    api.get('/api/pricelists').catch(() => []),
+  ]);
   if (token !== renderToken) return;
   const pack = packs.find((entry) => entry.id === packId);
   if (!pack) {
@@ -1166,6 +1333,13 @@ async function renderKalkulation(packId, token, job = null) {
   const state = createCalcState(pack);
   const jobMeta = createJobMeta(currentJob);
   if (currentJob) applyJobState(state, currentJob);
+  const calcPack = () => ({
+    ...pack,
+    ressourcen: (pack.ressourcen || []).map((resource) => ({
+      ...resource,
+      ...(state.ressourcen?.[resource.id] || {}),
+    })),
+  });
   const draft = readDraft();
   const canOfferDraft = Boolean(draft && draft.packId === pack.id && (!draft.jobId || draft.jobId === currentJob?.id));
   const anfahrtInput = (pack.eingaben || []).find((input) => input.id === 'anfahrtKm');
@@ -1226,6 +1400,8 @@ async function renderKalkulation(packId, token, job = null) {
           </div>
         </section>
         ${renderMetaPanel(jobMeta)}
+        ${toolsPanelHtml(pack, presets, pricelists)}
+        <section class="panel" data-foto-panel>${fotoPanelHtml(currentJob)}</section>
         ${factors.length ? `
           <section class="panel">
             <div class="panel__head">
@@ -1273,7 +1449,7 @@ async function renderKalkulation(packId, token, job = null) {
   };
 
   const persistDraft = () => {
-    if (!hasInteracted) return;
+    if (!hasInteracted || appSettings.autosave === false) return;
     writeDraft({
       packId: pack.id,
       jobId: currentJob?.id || null,
@@ -1282,6 +1458,7 @@ async function renderKalkulation(packId, token, job = null) {
         eingaben: { ...state.eingaben },
         faktoren: { ...state.faktoren },
         preise: { ...state.preise },
+        ressourcen: { ...state.ressourcen },
       },
       meta: {
         kunde: { ...jobMeta.kunde },
@@ -1297,7 +1474,7 @@ async function renderKalkulation(packId, token, job = null) {
       return;
     }
     try {
-      renderResult(result, calculate(pack, state));
+      renderResult(result, calculate(calcPack(), state));
       persistDraft();
     } catch (err) {
       showResultMessage(result, err instanceof FormulaError ? err.message : 'Die Berechnung ist nicht möglich.');
@@ -1356,6 +1533,7 @@ async function renderKalkulation(packId, token, job = null) {
       draftBanner.hidden = true;
       setSaveStatus('Entwurf wiederhergestellt.', 'success');
       recalc();
+      updateToolsState();
     });
     draftBanner.querySelector('[data-draft-discard]')?.addEventListener('click', () => {
       clearDraft();
@@ -1369,6 +1547,124 @@ async function renderKalkulation(packId, token, job = null) {
     printButton.textContent = ['rechnung', 'abgeschlossen'].includes(currentJob?.status) ? 'Rechnung drucken' : 'Angebot drucken';
   };
 
+  const fotoPanel = form.querySelector('[data-foto-panel]');
+  const setFotoFeedback = (message, type = '') => {
+    const feedback = fotoPanel?.querySelector('[data-foto-feedback]');
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.dataset.type = type;
+  };
+
+  const bindFotoPanel = () => {
+    const input = fotoPanel?.querySelector('[data-foto-input]');
+    input?.addEventListener('change', async () => {
+      if (!currentJob) return;
+      const remaining = 6 - (Array.isArray(currentJob.fotos) ? currentJob.fotos.length : 0);
+      const files = [...input.files].slice(0, Math.max(0, remaining));
+      if (files.length === 0) return;
+      input.disabled = true;
+      let saved = 0;
+      for (const file of files) {
+        try {
+          const data = await resizeImage(file);
+          const response = await api.post(`/api/jobs/${encodeURIComponent(currentJob.id)}/fotos`, { name: file.name, data });
+          if (token !== renderToken) return;
+          currentJob = response.job;
+          saved += 1;
+        } catch (err) {
+          setFotoFeedback(err.message || 'Das Foto konnte nicht gespeichert werden.', 'error');
+          break;
+        }
+      }
+      refreshFotos();
+      if (saved > 0) setFotoFeedback(saved === 1 ? 'Foto gespeichert.' : `${saved} Fotos gespeichert.`, 'success');
+    });
+
+    fotoPanel?.querySelectorAll('[data-foto-delete]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        if (!currentJob) return;
+        const datei = button.dataset.fotoDelete;
+        button.disabled = true;
+        try {
+          await api.del(`/api/fotos/${encodeURIComponent(currentJob.id)}/${encodeURIComponent(datei)}`);
+          if (token !== renderToken) return;
+          currentJob = { ...currentJob, fotos: (currentJob.fotos || []).filter((foto) => foto.datei !== datei) };
+          refreshFotos();
+          setFotoFeedback('Foto entfernt.', 'success');
+        } catch (err) {
+          button.disabled = false;
+          setFotoFeedback(err.message || 'Das Foto konnte nicht entfernt werden.', 'error');
+        }
+      });
+    });
+  };
+
+  const refreshFotos = () => {
+    if (!fotoPanel) return;
+    fotoPanel.innerHTML = fotoPanelHtml(currentJob);
+    bindFotoPanel();
+  };
+  bindFotoPanel();
+
+  const toolsState = form.querySelector('[data-tools-state]');
+  const toolsMessage = form.querySelector('[data-tools-message]');
+  const setToolsMessage = (message, type = '') => {
+    if (!toolsMessage) return;
+    toolsMessage.textContent = message;
+    toolsMessage.dataset.type = type;
+  };
+  const updateToolsState = () => {
+    if (!toolsState) return;
+    const priceKeys = ['preisProEinheit', 'preisProFahrt', 'preisProContainer', 'preisProPalette', 'preisProSack'];
+    const parts = Object.entries(state.ressourcen || {}).map(([id, override]) => {
+      const resource = (pack.ressourcen || []).find((entry) => entry.id === id);
+      const key = priceKeys.find((candidate) => override[candidate] !== undefined);
+      const price = key ? formatCurrency(override[key]) : 'eigene Werte';
+      return `${resource?.label || id}: ${price}`;
+    });
+    toolsState.textContent = parts.length ? `Angepasst: ${parts.join(' · ')}` : '';
+  };
+
+  form.querySelector('[data-preset-apply]')?.addEventListener('click', () => {
+    const select = form.querySelector('[data-preset-select]');
+    const preset = (presets || []).find((entry) => entry.id === select?.value);
+    if (!preset) return;
+    const resource = presetResource(pack, preset);
+    if (!resource) {
+      setToolsMessage('Für diese Vorlage gibt es keine passende Ressource im Gewerk.', 'error');
+      return;
+    }
+    state.ressourcen[resource.id] = { ...(state.ressourcen[resource.id] || {}), ...(preset.werte || {}) };
+    markInteraction();
+    recalc();
+    updateToolsState();
+    setToolsMessage(`„${preset.name || 'Vorlage'}“ auf ${resource.label || resource.id} übernommen.`, 'success');
+  });
+
+  form.querySelector('[data-price-apply]')?.addEventListener('click', () => {
+    const priceSelect = form.querySelector('[data-price-select]');
+    const resourceSelect = form.querySelector('[data-price-resource]');
+    const [listId, positionId] = String(priceSelect?.value || '').split('::');
+    const list = (pricelists || []).find((entry) => entry.id === listId);
+    const position = (list?.positionen || []).find((entry) => entry.id === positionId);
+    const resource = (pack.ressourcen || []).find((entry) => entry.id === resourceSelect?.value && entry.art === 'material');
+    const price = Number(position?.preis);
+    if (!position || !resource || !Number.isFinite(price)) {
+      setToolsMessage('Preislistenposition oder Materialressource fehlt.', 'error');
+      return;
+    }
+    state.ressourcen[resource.id] = {
+      ...(state.ressourcen[resource.id] || {}),
+      preisProEinheit: price,
+      einheit: position.einheit || resource.einheit,
+    };
+    markInteraction();
+    recalc();
+    updateToolsState();
+    setToolsMessage(`${formatCurrency(price)} aus „${position.bezeichnung || 'Preisliste'}“ auf ${resource.label || resource.id} übernommen.`, 'success');
+  });
+  updateToolsState();
+
   const saveJob = async () => {
     readJobMeta();
     if (!syncState(form, state)) {
@@ -1379,7 +1675,7 @@ async function renderKalkulation(packId, token, job = null) {
 
     let snapshot;
     try {
-      snapshot = calculate(pack, state);
+      snapshot = calculate(calcPack(), state);
     } catch (err) {
       setSaveStatus(err instanceof FormulaError ? err.message : 'Die Berechnung ist nicht möglich.', 'error');
       return null;
@@ -1397,6 +1693,7 @@ async function renderKalkulation(packId, token, job = null) {
       eingaben: { ...state.eingaben },
       faktoren: { ...state.faktoren },
       preise: { ...state.preise },
+      ressourcen: { ...state.ressourcen },
       positionen: snapshot.positionen,
       summen: snapshot.summen,
     };
@@ -1410,6 +1707,7 @@ async function renderKalkulation(packId, token, job = null) {
       clearDraft();
       saveButton.textContent = 'Aktualisieren';
       updatePrintButton();
+      refreshFotos();
       if (saveStatus) {
         saveStatus.innerHTML = 'Gespeichert. <a href="#/vorgaenge">Zur Vorgangsliste</a>';
         saveStatus.dataset.type = 'success';
@@ -1433,6 +1731,571 @@ async function renderKalkulation(packId, token, job = null) {
   });
 
   recalc();
+}
+
+async function renderPreislisten(token) {
+  app.innerHTML = `
+    <section class="page-head">
+      <p class="eyebrow">Preislisten</p>
+      <div class="page-head__row">
+        <div>
+          <h1>Preislisten</h1>
+          <p class="lead">Lieferanten und Materialpreise pflegen und in Kalkulationen übernehmen.</p>
+        </div>
+        <button class="button button--primary" type="button" data-new-list>Neue Preisliste</button>
+      </div>
+    </section>
+    <p class="job-feedback" data-settings-feedback role="status"></p>
+    <div class="entity-layout">
+      <section class="panel" data-pl-editor></section>
+      <section class="panel" data-pl-list><p class="muted">Preislisten werden geladen …</p></section>
+    </div>`;
+
+  let lists = await api.get('/api/pricelists');
+  if (token !== renderToken) return;
+  if (!Array.isArray(lists)) lists = [];
+  let editingId = null;
+  const editor = app.querySelector('[data-pl-editor]');
+  const listEl = app.querySelector('[data-pl-list]');
+  const feedback = app.querySelector('[data-settings-feedback]');
+
+  const setFeedback = (message, type = '') => {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.dataset.type = type;
+  };
+
+  const positionRow = (position = {}) => `
+    <div class="pe-row" data-pos-id="${escapeHtml(position.id || newId('pos'))}">
+      <input class="field__input" type="text" data-pl-field="bezeichnung" aria-label="Bezeichnung" placeholder="z. B. Innenwandfarbe" value="${escapeHtml(position.bezeichnung || '')}" autocomplete="off">
+      <input class="field__input" type="text" data-pl-field="einheit" aria-label="Einheit" placeholder="l" value="${escapeHtml(position.einheit || '')}" autocomplete="off">
+      <input class="field__input" type="text" inputmode="decimal" data-pl-field="preis" aria-label="Preis" placeholder="Preis" value="${position.preis === undefined || position.preis === null ? '' : escapeHtml(inputValue(position.preis))}" autocomplete="off">
+      <input class="field__input" type="text" inputmode="decimal" data-pl-field="mwst" aria-label="MwSt." placeholder="19" value="${position.mwst === undefined || position.mwst === null ? '19' : escapeHtml(inputValue(position.mwst))}" autocomplete="off">
+      <button class="icon-button" type="button" data-pl-remove aria-label="Position entfernen">×</button>
+    </div>`;
+
+  const editorHtml = () => {
+    const current = editingId ? lists.find((list) => list.id === editingId) : null;
+    const draft = current || { lieferant: '', stand: todayIso(), positionen: [{}] };
+    return `
+      <div class="panel__head">
+        <div><h2>${current ? 'Preisliste bearbeiten' : 'Neue Preisliste'}</h2><p>Stand und Materialpositionen</p></div>
+      </div>
+      <div class="fields">
+        <label class="field">
+          <span class="field__label">Lieferant</span>
+          <input class="field__input" type="text" data-pl-lieferant placeholder="z. B. Baustoffe Müller" value="${escapeHtml(draft.lieferant || '')}" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field__label">Stand</span>
+          <input class="field__input" type="date" data-pl-stand value="${escapeHtml(draft.stand || todayIso())}">
+        </label>
+      </div>
+      <div class="pe-head">
+        <span>Bezeichnung</span><span>Einheit</span><span>Preis</span><span>MwSt.</span><span></span>
+      </div>
+      <div data-pl-rows>${(draft.positionen || []).map(positionRow).join('')}</div>
+      <button class="button button--ghost button--compact" type="button" data-pl-add>Position hinzufügen</button>
+      <div class="form-actions">
+        <button class="button button--primary" type="button" data-pl-save>Speichern</button>
+        ${current ? '<button class="button button--ghost" type="button" data-pl-cancel>Abbrechen</button>' : ''}
+      </div>`;
+  };
+
+  const readEditor = () => {
+    const lieferant = editor.querySelector('[data-pl-lieferant]')?.value.trim() || '';
+    const stand = editor.querySelector('[data-pl-stand]')?.value || todayIso();
+    const positionen = [...editor.querySelectorAll('.pe-row')].map((row) => {
+      const field = (name) => row.querySelector(`[data-pl-field="${name}"]`)?.value.trim() || '';
+      return {
+        id: row.dataset.posId,
+        bezeichnung: field('bezeichnung'),
+        einheit: field('einheit'),
+        preis: parseGermanNumber(field('preis')),
+        mwst: parseGermanNumber(field('mwst')),
+      };
+    }).filter((position) => position.bezeichnung || position.einheit || position.preis !== null);
+    return { lieferant, stand, positionen };
+  };
+
+  const renderEditor = () => {
+    editor.innerHTML = editorHtml();
+    editor.querySelector('[data-pl-add]')?.addEventListener('click', () => {
+      editor.querySelector('[data-pl-rows]')?.insertAdjacentHTML('beforeend', positionRow({}));
+    });
+    editor.querySelector('[data-pl-rows]')?.addEventListener('click', (event) => {
+      const remove = event.target.closest('[data-pl-remove]');
+      if (remove) remove.closest('.pe-row')?.remove();
+    });
+    editor.querySelector('[data-pl-cancel]')?.addEventListener('click', () => {
+      editingId = null;
+      renderEditor();
+    });
+    editor.querySelector('[data-pl-save]')?.addEventListener('click', async () => {
+      const draft = readEditor();
+      if (!draft.lieferant) {
+        setFeedback('Bitte einen Lieferanten eintragen.', 'error');
+        return;
+      }
+      if (draft.positionen.some((position) => !position.bezeichnung || position.preis === null)) {
+        setFeedback('Jede Materialposition braucht eine Bezeichnung und einen gültigen Preis.', 'error');
+        return;
+      }
+      const current = editingId ? lists.find((list) => list.id === editingId) : null;
+      const saved = {
+        id: current?.id || newId('pl'),
+        lieferant: draft.lieferant,
+        stand: draft.stand,
+        positionen: draft.positionen.map((position) => ({
+          ...position,
+          preis: Number(position.preis) || 0,
+          mwst: position.mwst === null ? 19 : Number(position.mwst),
+        })),
+      };
+      const next = current ? lists.map((list) => list.id === saved.id ? saved : list) : [...lists, saved];
+      try {
+        await api.put('/api/pricelists', next);
+        if (token !== renderToken) return;
+        lists = await api.get('/api/pricelists');
+        editingId = saved.id;
+        renderEditor();
+        renderList();
+        setFeedback('Preisliste gespeichert.', 'success');
+      } catch (err) {
+        setFeedback(err.message || 'Die Preisliste konnte nicht gespeichert werden.', 'error');
+      }
+    });
+  };
+
+  const renderList = () => {
+    listEl.innerHTML = `
+      <div class="panel__head"><div><h2>Gespeicherte Preislisten</h2><p>${lists.length} ${lists.length === 1 ? 'Liste' : 'Listen'}</p></div></div>
+      ${lists.length ? `<div class="entity-list">${lists.map((list) => `
+        <article class="entity-row">
+          <div>
+            <strong>${escapeHtml(list.lieferant || 'Ohne Lieferant')}</strong>
+            <p>Stand ${formatDate(list.stand)} · ${(list.positionen || []).length} ${(list.positionen || []).length === 1 ? 'Position' : 'Positionen'}</p>
+          </div>
+          <div class="entity-row__actions">
+            <button class="button button--ghost button--compact" type="button" data-pl-edit="${escapeHtml(list.id)}">Bearbeiten</button>
+            <button class="button button--ghost button--compact button--danger" type="button" data-pl-delete="${escapeHtml(list.id)}">Löschen</button>
+          </div>
+        </article>`).join('')}</div>` : '<p class="muted">Noch keine Preisliste angelegt.</p>'}`;
+
+    listEl.querySelectorAll('[data-pl-edit]').forEach((button) => {
+      button.addEventListener('click', () => {
+        editingId = button.dataset.plEdit;
+        renderEditor();
+        editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+    listEl.querySelectorAll('[data-pl-delete]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const list = lists.find((entry) => entry.id === button.dataset.plDelete);
+        if (!list || !window.confirm(`Preisliste „${list.lieferant || 'Ohne Lieferant'}“ wirklich löschen?`)) return;
+        try {
+          const next = lists.filter((entry) => entry.id !== list.id);
+          await api.put('/api/pricelists', next);
+          if (token !== renderToken) return;
+          lists = await api.get('/api/pricelists');
+          if (editingId === list.id) editingId = null;
+          renderEditor();
+          renderList();
+          setFeedback('Preisliste gelöscht.', 'success');
+        } catch (err) {
+          setFeedback(err.message || 'Die Preisliste konnte nicht gelöscht werden.', 'error');
+        }
+      });
+    });
+  };
+
+  app.querySelector('[data-new-list]')?.addEventListener('click', () => {
+    editingId = null;
+    renderEditor();
+    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  renderEditor();
+  renderList();
+}
+
+const PRESET_ART_LABELS = {
+  transport: 'Transport',
+  container: 'Container',
+  material: 'Material',
+  stunden: 'Stunden',
+  pauschal: 'Pauschal',
+};
+
+function presetValueFields(art, werte = {}) {
+  return (PRESET_ARTEN[art] || []).map((field) => {
+    const raw = werte[field.key];
+    const value = field.type === 'text' ? String(raw ?? '') : inputValue(Number(raw ?? 0));
+    return `
+      <label class="field">
+        <span class="field__label">${escapeHtml(field.label)}</span>
+        <span class="field__control">
+          <input class="field__input" type="text" ${field.type === 'text' ? '' : 'inputmode="decimal"'} data-preset-field="${escapeHtml(field.key)}" value="${escapeHtml(value)}" autocomplete="off">
+          ${field.einheit ? `<span class="field__unit">${escapeHtml(field.einheit)}</span>` : ''}
+        </span>
+      </label>`;
+  }).join('');
+}
+
+async function renderVorlagen(token) {
+  app.innerHTML = `
+    <section class="page-head">
+      <p class="eyebrow">Vorlagen</p>
+      <div class="page-head__row">
+        <div>
+          <h1>Vorlagen</h1>
+          <p class="lead">Wiederverwendbare LKW-, Container-, Material- und Stundensätze.</p>
+        </div>
+        <button class="button button--primary" type="button" data-new-preset>Neue Vorlage</button>
+      </div>
+    </section>
+    <p class="job-feedback" data-settings-feedback role="status"></p>
+    <div class="entity-layout">
+      <section class="panel" data-preset-editor></section>
+      <section class="panel" data-preset-list><p class="muted">Vorlagen werden geladen …</p></section>
+    </div>`;
+
+  let presets = await api.get('/api/presets');
+  if (token !== renderToken) return;
+  if (!Array.isArray(presets)) presets = [];
+  let editingId = null;
+  const editor = app.querySelector('[data-preset-editor]');
+  const listEl = app.querySelector('[data-preset-list]');
+  const feedback = app.querySelector('[data-settings-feedback]');
+
+  const setFeedback = (message, type = '') => {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.dataset.type = type;
+  };
+
+  const editorHtml = () => {
+    const current = editingId ? presets.find((preset) => preset.id === editingId) : null;
+    const draft = current || { name: '', art: 'transport', werte: {} };
+    return `
+      <div class="panel__head"><div><h2>${current ? 'Vorlage bearbeiten' : 'Neue Vorlage'}</h2><p>Werte werden kopiert, nicht verlinkt</p></div></div>
+      <div class="fields">
+        <label class="field">
+          <span class="field__label">Name</span>
+          <input class="field__input" type="text" data-preset-name placeholder="z. B. LKW 8 m³" value="${escapeHtml(draft.name || '')}" autocomplete="off">
+        </label>
+        <label class="field">
+          <span class="field__label">Art</span>
+          <select class="field__input" data-preset-art>
+            ${Object.entries(PRESET_ART_LABELS).map(([value, label]) => `<option value="${value}" ${draft.art === value ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <div class="fields" data-preset-values>${presetValueFields(draft.art, draft.werte)}</div>
+      <div class="form-actions">
+        <button class="button button--primary" type="button" data-preset-save>Speichern</button>
+        ${current ? '<button class="button button--ghost" type="button" data-preset-cancel>Abbrechen</button>' : ''}
+      </div>`;
+  };
+
+  const readEditor = () => {
+    const name = editor.querySelector('[data-preset-name]')?.value.trim() || '';
+    const art = editor.querySelector('[data-preset-art]')?.value || 'transport';
+    const werte = {};
+    for (const input of editor.querySelectorAll('[data-preset-field]')) {
+      const field = (PRESET_ARTEN[art] || []).find((entry) => entry.key === input.dataset.presetField);
+      if (!field) continue;
+      werte[field.key] = field.type === 'text' ? input.value.trim() : parseGermanNumber(input.value);
+    }
+    return { name, art, werte };
+  };
+
+  const renderEditor = () => {
+    editor.innerHTML = editorHtml();
+    editor.querySelector('[data-preset-art]')?.addEventListener('change', (event) => {
+      const values = editor.querySelector('[data-preset-values]');
+      if (values) values.innerHTML = presetValueFields(event.target.value, {});
+    });
+    editor.querySelector('[data-preset-cancel]')?.addEventListener('click', () => {
+      editingId = null;
+      renderEditor();
+    });
+    editor.querySelector('[data-preset-save]')?.addEventListener('click', async () => {
+      const draft = readEditor();
+      if (!draft.name) {
+        setFeedback('Bitte einen Namen für die Vorlage eintragen.', 'error');
+        return;
+      }
+      if (Object.values(draft.werte).some((value) => value === null || value === '')) {
+        setFeedback('Bitte alle Werte der Vorlage ausfüllen.', 'error');
+        return;
+      }
+      const current = editingId ? presets.find((preset) => preset.id === editingId) : null;
+      const saved = {
+        id: current?.id || newId('preset'),
+        name: draft.name,
+        art: draft.art,
+        werte: Object.fromEntries(Object.entries(draft.werte).map(([key, value]) => [key, typeof value === 'string' ? value : Number(value)])),
+      };
+      const next = current ? presets.map((preset) => preset.id === saved.id ? saved : preset) : [...presets, saved];
+      try {
+        await api.put('/api/presets', next);
+        if (token !== renderToken) return;
+        presets = await api.get('/api/presets');
+        editingId = saved.id;
+        renderEditor();
+        renderList();
+        setFeedback('Vorlage gespeichert.', 'success');
+      } catch (err) {
+        setFeedback(err.message || 'Die Vorlage konnte nicht gespeichert werden.', 'error');
+      }
+    });
+  };
+
+  const presetSummary = (preset) => (PRESET_ARTEN[preset.art] || [])
+    .map((field) => {
+      const value = preset.werte?.[field.key];
+      if (value === undefined || value === null || value === '') return '';
+      if (field.type === 'text') return String(value);
+      const number = Number(value);
+      const formatted = formatNumber(number, Number.isInteger(number) ? 0 : 2);
+      return field.einheit ? `${formatted}\u00a0${field.einheit}` : formatted;
+    })
+    .filter(Boolean)
+    .join(' · ');
+
+  const renderList = () => {
+    listEl.innerHTML = `
+      <div class="panel__head"><div><h2>Gespeicherte Vorlagen</h2><p>${presets.length} ${presets.length === 1 ? 'Vorlage' : 'Vorlagen'}</p></div></div>
+      ${presets.length ? `<div class="entity-list">${presets.map((preset) => `
+        <article class="entity-row">
+          <div>
+            <strong>${escapeHtml(preset.name || 'Ohne Namen')}</strong>
+            <p>${escapeHtml(PRESET_ART_LABELS[preset.art] || preset.art || 'Vorlage')}${presetSummary(preset) ? ` · ${escapeHtml(presetSummary(preset))}` : ''}</p>
+          </div>
+          <div class="entity-row__actions">
+            <button class="button button--ghost button--compact" type="button" data-preset-edit="${escapeHtml(preset.id)}">Bearbeiten</button>
+            <button class="button button--ghost button--compact button--danger" type="button" data-preset-delete="${escapeHtml(preset.id)}">Löschen</button>
+          </div>
+        </article>`).join('')}</div>` : '<p class="muted">Noch keine Vorlage angelegt.</p>'}`;
+
+    listEl.querySelectorAll('[data-preset-edit]').forEach((button) => {
+      button.addEventListener('click', () => {
+        editingId = button.dataset.presetEdit;
+        renderEditor();
+        editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+    listEl.querySelectorAll('[data-preset-delete]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const preset = presets.find((entry) => entry.id === button.dataset.presetDelete);
+        if (!preset || !window.confirm(`Vorlage „${preset.name || 'Ohne Namen'}“ wirklich löschen?`)) return;
+        try {
+          const next = presets.filter((entry) => entry.id !== preset.id);
+          await api.put('/api/presets', next);
+          if (token !== renderToken) return;
+          presets = await api.get('/api/presets');
+          if (editingId === preset.id) editingId = null;
+          renderEditor();
+          renderList();
+          setFeedback('Vorlage gelöscht.', 'success');
+        } catch (err) {
+          setFeedback(err.message || 'Die Vorlage konnte nicht gelöscht werden.', 'error');
+        }
+      });
+    });
+  };
+
+  app.querySelector('[data-new-preset]')?.addEventListener('click', () => {
+    editingId = null;
+    renderEditor();
+    editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  renderEditor();
+  renderList();
+}
+
+function settingsField(label, path, value, options = {}) {
+  const type = options.type || 'text';
+  const inputmode = options.inputmode ? ` inputmode="${options.inputmode}"` : '';
+  return `
+    <label class="field">
+      <span class="field__label">${escapeHtml(label)}</span>
+      <input class="field__input" type="${type}" data-setting="${escapeHtml(path)}" value="${escapeHtml(value ?? '')}"${inputmode} autocomplete="off">
+    </label>`;
+}
+
+function applyDisplaySettings(settings) {
+  applyTheme(settings.theme);
+  document.documentElement.dataset.reduceMotion = settings.reduzierteBewegung ? 'true' : 'false';
+}
+
+async function renderEinstellungen(token) {
+  let settings = normaliseSettings(await api.get('/api/settings'));
+  if (token !== renderToken) return;
+  applyDisplaySettings(settings);
+
+  const firma = settings.firma;
+  app.innerHTML = `
+    <section class="page-head">
+      <p class="eyebrow">Einstellungen</p>
+      <div>
+        <h1>Einstellungen</h1>
+        <p class="lead">Firmendaten, Vorgaben und Sicherung – alles serverseitig gespeichert.</p>
+      </div>
+    </section>
+    <p class="job-feedback" data-settings-feedback role="status"></p>
+    <section class="panel">
+      <div class="panel__head"><div><h2>Firmendaten</h2><p>Erscheinen auf Angebot und Rechnung</p></div></div>
+      <div class="fields fields--three settings-fields">
+        ${settingsField('Firma', 'firma.name', firma.name)}
+        ${settingsField('Straße', 'firma.strasse', firma.strasse)}
+        ${settingsField('PLZ', 'firma.plz', firma.plz)}
+        ${settingsField('Ort', 'firma.ort', firma.ort)}
+        ${settingsField('Telefon', 'firma.telefon', firma.telefon)}
+        ${settingsField('E-Mail', 'firma.email', firma.email, { type: 'email' })}
+        ${settingsField('Steuernummer', 'firma.steuernummer', firma.steuernummer)}
+        ${settingsField('USt-IdNr.', 'firma.ustId', firma.ustId)}
+        ${settingsField('IBAN', 'firma.iban', firma.iban)}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel__head"><div><h2>Kalkulation & Darstellung</h2><p>Vorgaben für neue Vorgänge</p></div></div>
+      <div class="fields fields--three settings-fields">
+        ${settingsField('Standard-MwSt.', 'standardMwst', inputValue(settings.standardMwst), { inputmode: 'decimal' })}
+        ${settingsField('Dezimalstellen', 'dezimalstellen', inputValue(settings.dezimalstellen), { inputmode: 'numeric' })}
+        <label class="field">
+          <span class="field__label">Theme</span>
+          <select class="field__input" data-setting="theme">
+            <option value="system" ${settings.theme === 'system' ? 'selected' : ''}>System</option>
+            <option value="light" ${settings.theme === 'light' ? 'selected' : ''}>Hell</option>
+            <option value="dark" ${settings.theme === 'dark' ? 'selected' : ''}>Dunkel</option>
+          </select>
+        </label>
+      </div>
+      <div class="check-row">
+        <label class="check"><input type="checkbox" data-setting="reduzierteBewegung" ${settings.reduzierteBewegung ? 'checked' : ''}> Reduzierte Bewegung</label>
+        <label class="check"><input type="checkbox" data-setting="autosave" ${settings.autosave ? 'checked' : ''}> Entwurf automatisch lokal sichern</label>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel__head"><div><h2>Nummern & Zahlung</h2><p>Präfixe und Zahlungsziel</p></div></div>
+      <div class="fields fields--three settings-fields">
+        ${settingsField('Angebots-Präfix', 'angebotsPrefix', settings.angebotsPrefix)}
+        ${settingsField('Rechnungs-Präfix', 'rechnungsPrefix', settings.rechnungsPrefix)}
+        ${settingsField('Zahlungsziel in Tagen', 'zahlungszielTage', inputValue(settings.zahlungszielTage), { inputmode: 'numeric' })}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel__head"><div><h2>Sicherung</h2><p>JSON-Bundle exportieren oder importieren</p></div></div>
+      <div class="backup-actions">
+        <button class="button button--ghost" type="button" data-export>JSON exportieren</button>
+        <label class="field backup-file">
+          <span class="field__label">Importdatei</span>
+          <input class="field__input" type="file" accept="application/json,.json" data-import-file>
+        </label>
+        <label class="field">
+          <span class="field__label">Importmodus</span>
+          <select class="field__input" data-import-mode>
+            <option value="merge">Zusammenführen</option>
+            <option value="ersetzen">Ersetzen</option>
+          </select>
+        </label>
+        <button class="button button--primary" type="button" data-import>Importieren</button>
+      </div>
+      <p class="field__help">Beim Modus „Ersetzen“ werden alle Vorgänge, Preislisten und Vorlagen überschrieben.</p>
+    </section>
+    <div class="form-actions">
+      <button class="button button--primary" type="button" data-save-settings>Einstellungen speichern</button>
+    </div>`;
+
+  const feedback = app.querySelector('[data-settings-feedback]');
+  const setFeedback = (message, type = '') => {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.dataset.type = type;
+  };
+
+  const readSettings = () => {
+    const next = { ...settings, firma: { ...settings.firma } };
+    for (const input of app.querySelectorAll('[data-setting]')) {
+      const path = input.dataset.setting;
+      const [group, key] = path.includes('.') ? path.split('.') : [null, path];
+      if (input.type === 'checkbox') {
+        if (group) next[group][key] = input.checked;
+        else next[key] = input.checked;
+        continue;
+      }
+      let value = input.value.trim();
+      if (['standardMwst', 'dezimalstellen', 'zahlungszielTage'].includes(path)) {
+        const parsed = parseGermanNumber(value);
+        value = parsed === null ? settings[path] : parsed;
+      }
+      if (group) next[group][key] = value;
+      else next[key] = value;
+    }
+    return normaliseSettings(next);
+  };
+
+  app.querySelector('[data-save-settings]')?.addEventListener('click', async () => {
+    const next = readSettings();
+    try {
+      const saved = await api.put('/api/settings', next);
+      if (token !== renderToken) return;
+      settings = normaliseSettings(saved);
+      appSettings = settings;
+      applyDisplaySettings(settings);
+      setFeedback('Einstellungen gespeichert.', 'success');
+    } catch (err) {
+      setFeedback(err.message || 'Die Einstellungen konnten nicht gespeichert werden.', 'error');
+    }
+  });
+
+  app.querySelector('[data-setting="theme"]')?.addEventListener('change', (event) => {
+    applyTheme(event.target.value);
+  });
+
+  app.querySelector('[data-export]')?.addEventListener('click', async () => {
+    try {
+      const bundle = await api.get('/api/export');
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `handwerker-kalkulator-${todayIso()}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setFeedback('Export erstellt.', 'success');
+    } catch (err) {
+      setFeedback(err.message || 'Der Export ist fehlgeschlagen.', 'error');
+    }
+  });
+
+  app.querySelector('[data-import]')?.addEventListener('click', async () => {
+    const file = app.querySelector('[data-import-file]')?.files?.[0];
+    const modus = app.querySelector('[data-import-mode]')?.value || 'merge';
+    if (!file) {
+      setFeedback('Bitte eine JSON-Datei auswählen.', 'error');
+      return;
+    }
+    if (modus === 'ersetzen' && !window.confirm('Alle vorhandenen Daten wirklich ersetzen?')) return;
+    try {
+      const bundle = JSON.parse(await file.text());
+      await api.post('/api/import', { modus, bundle });
+      if (token !== renderToken) return;
+      await renderEinstellungen(token);
+      const nextFeedback = app.querySelector('[data-settings-feedback]');
+      if (nextFeedback) {
+        nextFeedback.textContent = 'Import erfolgreich.';
+        nextFeedback.dataset.type = 'success';
+      }
+    } catch (err) {
+      setFeedback(err.message || 'Der Import ist fehlgeschlagen.', 'error');
+    }
+  });
 }
 
 function placeholder(title, text) {
@@ -1516,11 +2379,11 @@ async function router() {
         await renderKalkulation(job.gewerkId, token, job);
       }
     } else if (route === '/preislisten') {
-      placeholder('Preislisten', 'Preislisten werden im nächsten Schritt ausgebaut.');
+      await renderPreislisten(token);
     } else if (route === '/vorlagen') {
-      placeholder('Vorlagen', 'Vorlagen werden im nächsten Schritt ausgebaut.');
+      await renderVorlagen(token);
     } else if (route === '/einstellungen') {
-      placeholder('Einstellungen', 'Die Einstellungen werden im nächsten Schritt ausgebaut.');
+      await renderEinstellungen(token);
     } else if (route === '/hilfe') {
       renderHelp();
     } else {
@@ -1533,4 +2396,8 @@ async function router() {
 }
 
 window.addEventListener('hashchange', router);
+api.get('/api/settings').then((settings) => {
+  appSettings = normaliseSettings(settings);
+  applyDisplaySettings(appSettings);
+}).catch(() => {});
 router();

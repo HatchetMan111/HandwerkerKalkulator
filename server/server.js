@@ -1,6 +1,6 @@
 import http from 'node:http';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, unlink, mkdir, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadPacks } from './trades.js';
@@ -31,6 +31,8 @@ const JSON_HEADERS = {
 export function createServer({ dataDir, appDir, tradesDir }) {
   const startedAt = Date.now();
   const store = createStore(dataDir);
+  const fotosRoot = path.resolve(dataDir, 'fotos');
+  const isSafeSegment = (value) => /^[A-Za-z0-9._-]+$/.test(value) && value !== '.' && value !== '..';
   let ready;
   async function ensureReady() {
     ready ??= store.init();
@@ -138,8 +140,12 @@ export function createServer({ dataDir, appDir, tradesDir }) {
   let nummernQueue = Promise.resolve();
   function reserviereNummer(art) {
     const run = async () => {
-      const meta = await store.read('meta', { schema: 1, nummern: { angebot: 1, rechnung: 1 } });
-      const result = naechsteNummer(meta, art);
+      const [meta, settings] = await Promise.all([
+        store.read('meta', { schema: 1, nummern: { angebot: 1, rechnung: 1 } }),
+        store.read('settings', {}),
+      ]);
+      const praefix = art === 'rechnung' ? settings.rechnungsPrefix : settings.angebotsPrefix;
+      const result = naechsteNummer(meta, art, praefix);
       await store.write('meta', result.meta);
       return { nummer: result.nummer, jahr: result.jahr, zaehler: result.zaehler };
     };
@@ -230,11 +236,126 @@ export function createServer({ dataDir, appDir, tradesDir }) {
           return;
         }
         if (req.method === 'DELETE') {
-          jobs.splice(idx, 1);
+          const [removed] = jobs.splice(idx, 1);
           await store.write('jobs', jobs);
+          if (isSafeSegment(removed.id)) {
+            await rm(path.join(fotosRoot, removed.id), { recursive: true, force: true }).catch(() => {});
+          }
           send(res, 204);
           return;
         }
+      }
+
+      const fotoUploadMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)\/fotos$/);
+      if (fotoUploadMatch && req.method === 'POST') {
+        await ensureReady();
+        const jobId = decodeURIComponent(fotoUploadMatch[1]);
+        const jobs = await store.read('jobs', []);
+        const idx = jobs.findIndex((job) => job.id === jobId);
+        if (idx === -1) {
+          send(res, 404, { fehler: 'Vorgang nicht gefunden' });
+          return;
+        }
+        if (!isSafeSegment(jobId)) {
+          send(res, 400, { fehler: 'Ungültige Vorgangs-ID' });
+          return;
+        }
+        const body = await jsonBody(req);
+        const raw = typeof body?.data === 'string' ? body.data : '';
+        const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(raw);
+        if (!match) {
+          send(res, 400, { fehler: 'Foto muss ein JPEG, PNG oder WebP als Base64-DatenURL sein', feld: 'data' });
+          return;
+        }
+        const buffer = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
+        if (buffer.length === 0) {
+          send(res, 400, { fehler: 'Foto ist leer', feld: 'data' });
+          return;
+        }
+        if (buffer.length > 2 * 1024 * 1024) {
+          send(res, 413, { fehler: 'Foto ist größer als 2 MB', feld: 'data' });
+          return;
+        }
+        const job = jobs[idx];
+        const fotos = Array.isArray(job.fotos) ? job.fotos : [];
+        if (fotos.length >= 6) {
+          send(res, 400, { fehler: 'Es sind höchstens 6 Fotos je Vorgang erlaubt' });
+          return;
+        }
+        const extension = match[1] === 'image/png' ? '.png' : match[1] === 'image/webp' ? '.webp' : '.jpg';
+        const datei = `foto_${Date.now()}_${randomUUID().slice(0, 8)}${extension}`;
+        const dir = path.join(fotosRoot, jobId);
+        await mkdir(dir, { recursive: true, mode: 0o750 });
+        await writeFile(path.join(dir, datei), buffer, { mode: 0o640 });
+        const foto = {
+          datei,
+          name: typeof body.name === 'string' ? body.name.slice(0, 120) : datei,
+          groesse: buffer.length,
+          createdAt: new Date().toISOString(),
+          url: `/api/fotos/${encodeURIComponent(jobId)}/${encodeURIComponent(datei)}`,
+        };
+        const updated = { ...job, fotos: [...fotos, foto], updatedAt: new Date().toISOString() };
+        jobs[idx] = updated;
+        try {
+          await store.write('jobs', jobs);
+        } catch (err) {
+          await unlink(path.join(dir, datei)).catch(() => {});
+          throw err;
+        }
+        send(res, 201, { foto, job: updated });
+        return;
+      }
+
+      const fotoMatch = url.pathname.match(/^\/api\/fotos\/([^/]+)\/([^/]+)$/);
+      if (fotoMatch) {
+        await ensureReady();
+        let jobId;
+        let datei;
+        try {
+          jobId = decodeURIComponent(fotoMatch[1]);
+          datei = decodeURIComponent(fotoMatch[2]);
+        } catch {
+          send(res, 400, { fehler: 'Ungültige Foto-Adresse' });
+          return;
+        }
+        if (!isSafeSegment(jobId) || !isSafeSegment(datei)) {
+          send(res, 400, { fehler: 'Ungültige Foto-Adresse' });
+          return;
+        }
+        const jobs = await store.read('jobs', []);
+        const job = jobs.find((entry) => entry.id === jobId);
+        const foto = job && Array.isArray(job.fotos) ? job.fotos.find((entry) => entry.datei === datei) : null;
+        if (!job || !foto) {
+          send(res, 404, { fehler: 'Foto nicht gefunden' });
+          return;
+        }
+        const target = path.join(fotosRoot, jobId, datei);
+        if (req.method === 'GET') {
+          try {
+            const data = await readFile(target);
+            res.writeHead(200, {
+              'Content-Type': MIME[path.extname(target).toLowerCase()] || 'application/octet-stream',
+              'Content-Length': data.length,
+              'X-Content-Type-Options': 'nosniff',
+              'Referrer-Policy': 'no-referrer',
+              'X-Frame-Options': 'DENY',
+              'Cache-Control': 'private, max-age=3600',
+            });
+            res.end(data);
+          } catch {
+            send(res, 404, { fehler: 'Foto nicht gefunden' });
+          }
+          return;
+        }
+        if (req.method === 'DELETE') {
+          await unlink(target).catch(() => {});
+          const updated = { ...job, fotos: job.fotos.filter((entry) => entry.datei !== datei), updatedAt: new Date().toISOString() };
+          await store.write('jobs', jobs.map((entry) => entry.id === jobId ? updated : entry));
+          send(res, 204);
+          return;
+        }
+        send(res, 405, { fehler: 'Methode nicht erlaubt' });
+        return;
       }
 
       const collection = url.pathname.match(/^\/api\/(presets|pricelists|settings)$/);
