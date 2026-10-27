@@ -323,6 +323,26 @@ EOF
 }
 configure_container_dns
 
+# Der Container kann per DNS flattern. Für die Installation pinnen wir die
+# benötigten Repositories daher vom Host aus in die Container-Hosts-Datei.
+seed_container_hosts() {
+  local host ip
+  while IFS= read -r host; do
+    ip="$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR == 1 {print $1}' || true)"
+    [[ -n "$ip" ]] || { msg_warn "Host-DNS konnte ${host} nicht auflösen – überspringe Eintrag."; continue; }
+    # shellcheck disable=SC2016
+    pct exec "$CT_ID" -- bash -c 'grep -qE "^[^#]*[[:space:]]+$2[[:space:]]*$" /etc/hosts 2>/dev/null || printf "%s %s\n" "$1" "$2" >> /etc/hosts' _ "$ip" "$host" \
+      || msg_warn "Konnte ${host} nicht in die Container-Hosts-Datei eintragen."
+  done <<'HOSTS'
+deb.debian.org
+security.debian.org
+deb.nodesource.com
+github.com
+HOSTS
+  msg_ok "Repositorien aus Host-DNS in /etc/hosts gepinnt."
+}
+seed_container_hosts
+
 if [[ -n "$SSH_KEY_ARG" ]]; then
   [[ -f "$SSH_KEY_ARG" ]] || { msg_error "SSH-Key nicht gefunden: $SSH_KEY_ARG"; exit 1; }
   pct exec "$CT_ID" -- mkdir -p /root/.ssh
