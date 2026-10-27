@@ -8,7 +8,18 @@ Die App rechnet Positionen für 20 Gewerke, speichert Vorgänge, erzeugt
 Angebote und Rechnungen im DIN-A4-Layout und funktioniert nach dem ersten
 Aufruf auch offline im Browser.
 
-## Installation auf Proxmox
+## Projekt
+
+| Feld | Wert |
+|---|---|
+| **App-Name** | Handwerker-Kalkulator |
+| **Zweck** | Lokaler Angebots-, Mengen- und Materialrechner für Handwerksbetriebe |
+| **Tech-Stack** | Node.js 22, Vanilla-JS-Web-UI, JSON-Persistenz, systemd |
+| **GitHub-Repo** | <https://github.com/HatchetMan111/HandwerkerKalkulator> |
+| **Web-UI-Port** | `8090` (Bind: `0.0.0.0`) |
+| **Installation** | Proxmox-LXC über den Einzeiler unten; eine VM-Variante ist nicht enthalten |
+
+## Einzeiler-Installation auf Proxmox
 
 Voraussetzungen:
 
