@@ -51,6 +51,7 @@ REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
 LOCAL_SRC="${LOCAL_SRC:-}"
 CT_HOSTNAME="${CT_HOSTNAME:-$APP}"
+DNS_ARG="${DNS:-}"
 DEBUG="${DEBUG:-0}"
 LOG_FILE="/tmp/${APP}-install-$(date +%F-%H%M%S).log"
 
@@ -92,6 +93,7 @@ Optionen:
   --storage NAME        RootFS-Storage (Default: auto, bevorzugt local-lvm)
   --template-store NAME Template-Storage (Default: ${DEFAULT_TEMPLATE_STORE})
   --bridge NAME         Netzwerk-Bridge (Default: ${DEFAULT_BRIDGE})
+  --dns IP              DNS-Server im Container (Default: automatisch)
   --password PW         Root-Passwort (Default: zufällig, wird angezeigt)
   --ssh-key PATH        SSH Public Key für root (optional)
   --repo URL            Git-Repository (Default: ${DEFAULT_REPO_URL})
@@ -101,7 +103,7 @@ Optionen:
   -h, --help            diese Hilfe
 
 Umgebung:
-  CT_ID, CORES, RAM, DISK, BRIDGE, STORAGE, PASSWORD, SSH_KEY,
+  CT_ID, CORES, RAM, DISK, BRIDGE, DNS, STORAGE, PASSWORD, SSH_KEY,
   REPO_URL, BRANCH, LOCAL_SRC, TEMPLATE_STORE, DEBUG
 EOF
 }
@@ -126,6 +128,7 @@ while [[ $# -gt 0 ]]; do
     --storage)       require_value "$1" "${2:-}"; STORAGE_ARG="$2"; shift 2;;
     --template-store) require_value "$1" "${2:-}"; TEMPLATE_STORE="$2"; shift 2;;
     --bridge)        require_value "$1" "${2:-}"; BRIDGE="$2"; shift 2;;
+    --dns)           require_value "$1" "${2:-}"; DNS_ARG="$2"; shift 2;;
     --password)      require_value "$1" "${2:-}"; PASSWORD_ARG="$2"; shift 2;;
     --ssh-key)       require_value "$1" "${2:-}"; SSH_KEY_ARG="$2"; shift 2;;
     --repo)          require_value "$1" "${2:-}"; REPO_URL="$2"; shift 2;;
@@ -154,6 +157,10 @@ done
 [[ "$RAM" =~ ^[0-9]+$ && "$RAM" -ge 256 ]] || { msg_error "--memory muss mindestens 256 MB sein."; exit 1; }
 [[ "$DISK" =~ ^[0-9]+$ && "$DISK" -ge 2 ]] || { msg_error "--disk muss mindestens 2 GB sein."; exit 1; }
 [[ "$CT_HOSTNAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$ ]] || { msg_error "Ungültiger Hostname: $CT_HOSTNAME"; exit 1; }
+if [[ -n "$DNS_ARG" && ! "$DNS_ARG" =~ ^[0-9A-Fa-f:.]+$ ]]; then
+  msg_error "Ungültiger DNS-Server: $DNS_ARG"
+  exit 1
+fi
 
 if [[ -n "$LOCAL_SRC" ]]; then
   if ! LOCAL_SRC="$(cd "$LOCAL_SRC" && pwd)"; then
@@ -240,6 +247,48 @@ for _ in $(seq 1 30); do
 done
 [[ -n "$CT_IP" ]] || { msg_error "Keine Container-IP – Netzwerk/Bridge prüfen."; exit 1; }
 msg_ok "Container-IP: $CT_IP"
+
+# ---------------------------------------------------------------------------
+# DNS im Container sicherstellen
+# ---------------------------------------------------------------------------
+configure_container_dns() {
+  local candidates=() ns gateway
+  dns_works() { pct exec "$CT_ID" -- getent hosts deb.debian.org >/dev/null 2>&1; }
+
+  if dns_works; then
+    msg_ok "DNS im Container funktioniert."
+    return 0
+  fi
+
+  [[ -n "$DNS_ARG" ]] && candidates+=("$DNS_ARG")
+  while IFS= read -r ns; do
+    [[ "$ns" =~ ^127\. || "$ns" == "::1" ]] && continue
+    candidates+=("$ns")
+  done < <(awk '$1 == "nameserver" {print $2}' /etc/resolv.conf 2>/dev/null || true)
+  gateway="$(pct exec "$CT_ID" -- ip route show default 2>/dev/null | awk '{print $3; exit}' || true)"
+  [[ -n "$gateway" ]] && candidates+=("$gateway")
+  candidates+=("1.1.1.1" "8.8.8.8")
+
+  msg_warn "DNS-Auflösung im Container fehlgeschlagen – teste Nameserver ..."
+  for ns in "${candidates[@]}"; do
+    [[ -n "$ns" ]] || continue
+    msg_info "Teste DNS ${ns} ..."
+    # shellcheck disable=SC2016
+    pct exec "$CT_ID" -- bash -c 'printf "nameserver %s\n" "$1" > /etc/resolv.conf' _ "$ns" || continue
+    if dns_works; then
+      pct set "$CT_ID" --nameserver "$ns" >/dev/null 2>&1 || msg_warn "DNS konnte nicht dauerhaft in der CT-Config gesetzt werden."
+      msg_ok "DNS im Container: ${ns}"
+      return 0
+    fi
+  done
+
+  msg_error "Keine DNS-Auflösung im Container möglich. Bitte --dns <IP> angeben oder Host-DNS prüfen."
+  msg_error "Aktuelle Container-DNS/Konfiguration:"
+  pct exec "$CT_ID" -- cat /etc/resolv.conf 2>/dev/null || true
+  pct exec "$CT_ID" -- ip route 2>/dev/null || true
+  return 1
+}
+configure_container_dns
 
 if [[ -n "$SSH_KEY_ARG" ]]; then
   [[ -f "$SSH_KEY_ARG" ]] || { msg_error "SSH-Key nicht gefunden: $SSH_KEY_ARG"; exit 1; }

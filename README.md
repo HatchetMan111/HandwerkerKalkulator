@@ -58,6 +58,7 @@ systemd-Service ein und prüft Startseite und `/api/health`.
 | `--storage NAME` | automatisch | RootFS-Storage, bevorzugt `local-lvm` |
 | `--template-store NAME` | `local` | Storage für LXC-Templates |
 | `--bridge NAME` | `vmbr0` | Netzwerk-Bridge |
+| `--dns IP` | automatisch | DNS-Server im Container; überschreibt die Erkennung |
 | `--password PW` | zufällig | Root-Passwort; wird nur bei Neuerstellung angezeigt |
 | `--ssh-key PATH` | – | öffentlicher SSH-Key für root |
 | `--repo URL` | GitHub-Repo | alternatives Git-Repository |
@@ -67,7 +68,7 @@ systemd-Service ein und prüft Startseite und `/api/health`.
 | `-h`, `--help` | – | Hilfe |
 
 Alle Werte lassen sich auch über Umgebungsvariablen setzen:
-`CT_ID`, `CORES`, `RAM`, `DISK`, `BRIDGE`, `STORAGE`, `PASSWORD`,
+`CT_ID`, `CORES`, `RAM`, `DISK`, `BRIDGE`, `DNS`, `STORAGE`, `PASSWORD`,
 `SSH_KEY`, `REPO_URL`, `BRANCH`, `LOCAL_SRC`, `TEMPLATE_STORE`, `DEBUG`.
 
 ### Ressourcen
@@ -201,6 +202,9 @@ Häufige Probleme:
 - **Port 8090 belegt:** In der Unit `Environment=PORT=` ändern und
   `systemctl daemon-reload && systemctl restart handwerker-kalkulator`.
 - **Node-Installation scheitert:** DNS/Internetzugang des Containers prüfen.
+  Der Installer setzt die Nameserver automatisch aus Host-DNS, Gateway und
+  öffentlichen Fallbacks. Bei Bedarf explizit neu ausführen:
+  `bash handwerker-kalkulator.sh --ctid 110 --dns 1.1.1.1`.
 - **Alte App-Version im Browser:** Service Worker deregistrieren oder
   `app/sw.js`-`VERSION` erhöhen und neu deployen.
 
