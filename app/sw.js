@@ -1,5 +1,5 @@
 // Bei Änderungen an gecachten App-Dateien VERSION erhöhen.
-const VERSION = 'hk-2026-10-27-1';
+const VERSION = 'hk-2026-10-27-3';
 const STATIC_CACHE = `${VERSION}-static`;
 const API_CACHE = `${VERSION}-api`;
 
@@ -82,6 +82,17 @@ async function cacheFirst(request, fallbackUrl = null) {
   }
 }
 
+async function networkOnly(request) {
+  try {
+    return await fetch(request);
+  } catch {
+    return new Response(JSON.stringify({ fehler: 'Offline – diese Daten werden nicht zwischengespeichert.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
+  }
+}
+
 async function networkFirst(request) {
   try {
     const response = await fetch(request);
@@ -108,6 +119,15 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (url.pathname.startsWith('/api/')) {
+    if (
+      url.pathname === '/api/export'
+      || url.pathname === '/api/health'
+      || url.pathname === '/api/version'
+      || url.pathname.startsWith('/api/fotos/')
+    ) {
+      event.respondWith(networkOnly(request));
+      return;
+    }
     event.respondWith(networkFirst(request));
     return;
   }

@@ -593,6 +593,16 @@ h3 {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.field__textarea {
+  min-height: 96px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
 .settings-fields {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
@@ -703,7 +713,7 @@ select.field__input {
 }
 
 .chip {
-  min-height: 38px;
+  min-height: var(--tap);
   padding: 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
@@ -759,7 +769,7 @@ select.field__input {
 }
 
 .measure__footer .button {
-  min-height: 40px;
+  min-height: var(--tap);
   padding: 0 16px;
   font-size: 0.82rem;
 }
@@ -1114,7 +1124,7 @@ details[open] > summary.panel__head::after {
 }
 
 .button--compact {
-  min-height: 38px;
+  min-height: var(--tap);
   padding: 0 14px;
   font-size: 0.8rem;
 }
@@ -1670,7 +1680,7 @@ details[open] > summary.panel__head::after {
 }
 
 .photo-card figcaption .button {
-  min-height: 30px;
+  min-height: var(--tap);
   padding: 0 9px;
   font-size: 0.68rem;
 }

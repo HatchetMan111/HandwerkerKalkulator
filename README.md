@@ -128,10 +128,10 @@ Alle dauerhaften Daten liegen unter:
 └── fotos/             # Foto-Dateien der Vorgänge
 ```
 
-Der JSON-Export in den Einstellungen enthält Jobs, Vorlagen, Preislisten
-und Einstellungen. **Fotos und der Nummernstand in `meta.json` sind nicht
-im JSON-Export enthalten.** Für ein vollständiges Backup daher das gesamte
-Datenverzeichnis sichern:
+Der JSON-Export in den Einstellungen enthält Jobs, Vorlagen, Preislisten,
+Einstellungen und den Nummernstand aus `meta.json`. **Fotos sind nicht im
+JSON-Export enthalten.** Für ein vollständiges Backup inklusive Fotos daher
+das gesamte Datenverzeichnis sichern:
 
 ```bash
 pct exec 150 -- tar -czf /root/handwerker-kalkulator-backup.tar.gz \

@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { calculate, FormulaError } from './engine.js';
-import { formatNumber, formatCurrency, formatDate, parseGermanNumber } from './formats.js';
-import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement } from './measure.js';
+import { formatNumber, formatCurrency, formatDate, parseGermanNumber, setDefaultDecimals } from './formats.js';
+import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement, convertArea, areaDecimals, roundArea } from './measure.js';
 
 const GROUPS = ['Bau & Außen', 'Ausbau & Hochbau', 'Dienstleistung & Sonstiges'];
 const DEFAULT_TITLE = 'Handwerker-Kalkulator';
@@ -301,15 +301,22 @@ function applyMeasuredArea(details, area, source = '') {
     setMeasureMessage(details, 'Das Zielfeld wurde nicht gefunden.', 'error');
     return;
   }
-  const value = Math.round(Number(area) * 100) / 100;
+  const einheit = target.closest('.field')?.querySelector('.field__unit')?.textContent?.trim() || 'm²';
+  const converted = convertArea(area, einheit);
+  if (converted === null) {
+    setMeasureMessage(details, `Die Einheit „${einheit}“ wird vom Maß-Assistenten nicht unterstützt.`, 'error');
+    return;
+  }
+  const value = roundArea(converted, einheit);
   if (!(value > 0)) {
     setMeasureMessage(details, 'Die Fläche muss größer als 0 sein.', 'error');
     return;
   }
+  const decimals = areaDecimals(einheit);
   target.value = String(value).replace('.', ',');
   target.dispatchEvent(new Event('input', { bubbles: true }));
   target.focus({ preventScroll: true });
-  setMeasureMessage(details, `${source ? `${source}: ` : ''}${formatNumber(value, 2)} m² übernommen.`, 'success');
+  setMeasureMessage(details, `${source ? `${source}: ` : ''}${formatNumber(value, decimals)} ${einheit} übernommen.`, 'success');
 }
 
 function geoErrorMessage(error) {
@@ -612,7 +619,7 @@ function createCalcState(pack) {
   for (const factor of pack.faktoren || []) {
     state.faktoren[factor.id] = factor.standard ?? 0;
   }
-  state.preise.mwst = pack.preise?.mwst ?? appSettings.standardMwst ?? 19;
+  state.preise.mwst = appSettings.standardMwst ?? pack.preise?.mwst ?? 19;
   state.preise.marge = pack.preise?.marge ?? 0;
   if (pack.preise?.anfahrt && !('anfahrtKm' in state.eingaben)) state.eingaben.anfahrtKm = 0;
   return state;
@@ -626,6 +633,7 @@ function fieldError(el) {
   if (value === null) return 'Bitte eine gültige Zahl eingeben.';
   const unit = el.closest('.field')?.querySelector('.field__unit')?.textContent?.trim() || '';
   const suffix = unit ? ` ${unit}` : '';
+  if (value < 0 && el.dataset.allowNegative !== 'true') return 'Der Wert darf nicht negativ sein.';
   if (el.dataset.min !== undefined && value < Number(el.dataset.min)) {
     const min = Number(el.dataset.min);
     return `Mindestens ${formatNumber(min, Number.isInteger(min) ? 0 : 2)}${suffix}.`;
@@ -817,6 +825,11 @@ function applyDraftToForm(form, state, draft, titleInput, jobMeta) {
       if (jobMeta[group]) jobMeta[group][key] = String(value ?? '');
     }
   }
+  if (typeof draft.meta?.notizen === 'string') {
+    const el = form.querySelector('[data-meta="notizen"]');
+    if (el) el.value = draft.meta.notizen;
+    jobMeta.notizen = draft.meta.notizen;
+  }
   if (draft.titel) titleInput.value = draft.titel;
 }
 
@@ -838,6 +851,7 @@ function createJobMeta(job) {
       strasse: '', plz: '', ort: '', hinweis: '',
       ...addressSource(job?.baustelle, 'baustelle'),
     },
+    notizen: typeof job?.notizen === 'string' ? job.notizen : '',
   };
 }
 
@@ -852,7 +866,7 @@ function metaField(label, path, value, placeholder = '') {
 }
 
 function renderMetaPanel(jobMeta) {
-  const filled = [...Object.values(jobMeta.kunde), ...Object.values(jobMeta.baustelle)].some((value) => String(value || '').trim());
+  const filled = [...Object.values(jobMeta.kunde), ...Object.values(jobMeta.baustelle), jobMeta.notizen].some((value) => String(value || '').trim());
   return `
     <details class="panel" data-meta-panel${filled ? ' open' : ''}>
       <summary class="panel__head">
@@ -869,6 +883,10 @@ function renderMetaPanel(jobMeta) {
         ${metaField('Baustelle – PLZ', 'baustelle.plz', jobMeta.baustelle.plz)}
         ${metaField('Baustelle – Ort', 'baustelle.ort', jobMeta.baustelle.ort)}
         ${metaField('Baustelle – Hinweis', 'baustelle.hinweis', jobMeta.baustelle.hinweis)}
+        <label class="field field--wide">
+          <span class="field__label">Notizen für den Druck</span>
+          <textarea class="field__input field__textarea" data-meta="notizen" rows="3" placeholder="Optionaler Hinweis zum Vorgang">${escapeHtml(jobMeta.notizen || '')}</textarea>
+        </label>
       </div>
     </details>`;
 }
@@ -1320,7 +1338,7 @@ function fotoPanelHtml(job) {
   }
   const fotos = Array.isArray(job.fotos) ? job.fotos : [];
   const cards = fotos.map((foto) => {
-    const url = foto.url || `/api/fotos/${encodeURIComponent(job.id)}/${encodeURIComponent(foto.datei)}`;
+    const url = `/api/fotos/${encodeURIComponent(job.id)}/${encodeURIComponent(foto.datei)}`;
     return `
       <figure class="photo-card">
         <img src="${escapeHtml(url)}" alt="${escapeHtml(foto.name || 'Vorgangsfoto')}" loading="lazy">
@@ -1486,7 +1504,12 @@ async function renderKalkulation(packId, token, job = null) {
 
   const readJobMeta = () => {
     for (const el of form.querySelectorAll('[data-meta]')) {
-      const [group, key] = el.dataset.meta.split('.');
+      const path = el.dataset.meta;
+      if (!path.includes('.')) {
+        jobMeta[path] = el.value.trim();
+        continue;
+      }
+      const [group, key] = path.split('.');
       if (!jobMeta[group]) continue;
       jobMeta[group][key] = el.value.trim();
     }
@@ -1513,6 +1536,7 @@ async function renderKalkulation(packId, token, job = null) {
       meta: {
         kunde: { ...jobMeta.kunde },
         baustelle: { ...jobMeta.baustelle },
+        notizen: jobMeta.notizen || '',
       },
       savedAt: new Date().toISOString(),
     });
@@ -1594,8 +1618,12 @@ async function renderKalkulation(packId, token, job = null) {
 
   const updatePrintButton = () => {
     if (!printButton) return;
-    printButton.textContent = ['rechnung', 'abgeschlossen'].includes(currentJob?.status) ? 'Rechnung drucken' : 'Angebot drucken';
+    const status = currentJob?.status;
+    printButton.textContent = ['rechnung', 'abgeschlossen'].includes(status)
+      ? 'Rechnung drucken'
+      : ['auftrag', 'auftragsbestaetigung'].includes(status) ? 'Auftragsbestätigung drucken' : 'Angebot drucken';
   };
+  updatePrintButton();
 
   const fotoPanel = form.querySelector('[data-foto-panel]');
   const setFotoFeedback = (message, type = '') => {
@@ -1744,6 +1772,7 @@ async function renderKalkulation(packId, token, job = null) {
       faktoren: { ...state.faktoren },
       preise: { ...state.preise },
       ressourcen: { ...state.ressourcen },
+      notizen: jobMeta.notizen || '',
       positionen: snapshot.positionen,
       summen: snapshot.summen,
     };
@@ -2189,6 +2218,7 @@ function settingsField(label, path, value, options = {}) {
 
 function applyDisplaySettings(settings) {
   applyTheme(settings.theme);
+  setDefaultDecimals(settings.dezimalstellen);
   document.documentElement.dataset.reduceMotion = settings.reduzierteBewegung ? 'true' : 'false';
 }
 
@@ -2470,10 +2500,18 @@ async function router() {
 }
 
 window.addEventListener('hashchange', router);
-loadCached('/api/settings', 'settings', {}).then((settings) => {
-  appSettings = normaliseSettings(settings);
+const cachedSettings = readCachedData('settings');
+if (cachedSettings) {
+  appSettings = normaliseSettings(cachedSettings);
   applyDisplaySettings(appSettings);
-}).catch(() => {});
+}
+loadCached('/api/settings', 'settings', {})
+  .then((settings) => {
+    appSettings = normaliseSettings(settings);
+    applyDisplaySettings(appSettings);
+  })
+  .catch(() => {})
+  .finally(() => router());
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(() => {
@@ -2481,4 +2519,3 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
-router();

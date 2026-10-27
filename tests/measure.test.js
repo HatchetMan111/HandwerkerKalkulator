@@ -1,11 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement } from '../app/assets/measure.js';
+import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement, convertArea, areaDecimals, roundArea } from '../app/assets/measure.js';
 
 test('Flächen', () => {
   assert.equal(rectangleArea(5, 4), 20);
   assert.equal(lShapeArea(5, 4, 2, 1), 18);
   assert.equal(triangleArea(6, 3), 9);
+});
+
+test('Flächen in die Zieleinheit umrechnen', () => {
+  assert.equal(convertArea(10000, 'm²'), 10000);
+  assert.equal(convertArea(10000, 'ha'), 1);
+  assert.equal(convertArea(2500, 'ha'), 0.25);
+  assert.equal(convertArea(12, 'm2'), 12);
+  assert.equal(convertArea(12, 'unbekannt'), null);
+  assert.equal(roundArea(convertArea(50, 'ha'), 'ha'), 0.005);
+  assert.equal(roundArea(convertArea(250, 'ha'), 'ha'), 0.025);
+  assert.equal(roundArea(convertArea(40, 'ha'), 'ha'), 0.004);
+  assert.equal(roundArea(convertArea(40, 'm²'), 'm²'), 40);
+  assert.equal(areaDecimals('hektar'), 4);
+  assert.equal(areaDecimals('qm'), 2);
+  assert.equal(areaDecimals('unbekannt'), null);
 });
 
 test('GPS-Polygon (Näherung)', () => {

@@ -24,6 +24,15 @@ test('konkurrierende Writes bleiben vollständig', async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test('mutate serialisiert konkurrierende Read-Modify-Write-Zugriffe', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'hk-store-'));
+  const store = createStore(dir);
+  await store.init();
+  await Promise.all(Array.from({ length: 25 }, () => store.mutate('counter', { n: 0 }, (value) => ({ n: value.n + 1 }))));
+  assert.deepEqual(await store.read('counter', { n: 0 }), { n: 25 });
+  await rm(dir, { recursive: true, force: true });
+});
+
 test('read liefert Fallback bei fehlender Datei', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'hk-store-'));
   const store = createStore(dir);

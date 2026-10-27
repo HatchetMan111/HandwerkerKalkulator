@@ -1,4 +1,11 @@
-export function formatNumber(value, decimals = 2) {
+let defaultDecimals = 2;
+
+export function setDefaultDecimals(value) {
+  const decimals = Number(value);
+  defaultDecimals = Number.isInteger(decimals) && decimals >= 0 && decimals <= 4 ? decimals : 2;
+}
+
+export function formatNumber(value, decimals = defaultDecimals) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '–';
   return n.toLocaleString('de-DE', {
@@ -7,8 +14,8 @@ export function formatNumber(value, decimals = 2) {
   });
 }
 
-export function formatCurrency(value) {
-  return `${formatNumber(value, 2)} €`;
+export function formatCurrency(value, decimals = Math.max(2, defaultDecimals)) {
+  return `${formatNumber(value, decimals)} €`;
 }
 
 export function formatDate(iso) {
@@ -20,7 +27,14 @@ export function formatDate(iso) {
 
 export function parseGermanNumber(text) {
   if (typeof text === 'number') return Number.isFinite(text) ? text : null;
-  const raw = String(text).trim().replace(/\./g, '').replace(',', '.');
-  if (raw === '' || !/^-?\d+(\.\d+)?$/.test(raw)) return null;
-  return Number(raw);
+  let raw = String(text).trim().replace(/\s+/g, '');
+  if (raw === '') return null;
+  if (raw.includes(',')) {
+    raw = raw.replace(/\./g, '').replace(',', '.');
+  } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(raw)) {
+    raw = raw.replace(/\./g, '');
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(raw)) return null;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
 }

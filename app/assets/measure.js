@@ -5,6 +5,30 @@ const toNumber = (value) => {
 
 export const rectangleArea = (laenge, breite) => toNumber(laenge) * toNumber(breite);
 
+const normaliseUnit = (unit) => String(unit ?? '').trim().toLocaleLowerCase('de-DE').replace(/\s+/g, '');
+
+export function convertArea(area, unit = 'm²') {
+  const value = toNumber(area);
+  const normalised = normaliseUnit(unit);
+  if (['m²', 'm2', 'qm', 'quadratmeter'].includes(normalised)) return value;
+  if (['ha', 'hektar'].includes(normalised)) return value / 10000;
+  return null;
+}
+
+export function areaDecimals(unit = 'm²') {
+  const normalised = normaliseUnit(unit);
+  if (['m²', 'm2', 'qm', 'quadratmeter'].includes(normalised)) return 2;
+  if (['ha', 'hektar'].includes(normalised)) return 4;
+  return null;
+}
+
+export function roundArea(area, unit = 'm²') {
+  const decimals = areaDecimals(unit);
+  if (decimals === null) return null;
+  const factor = 10 ** decimals;
+  return Math.round(toNumber(area) * factor) / factor;
+}
+
 export const lShapeArea = (a, b, c, d) => Math.max(0, rectangleArea(a, b) - rectangleArea(c, d));
 
 export const triangleArea = (grundseite, hoehe) => (toNumber(grundseite) * toNumber(hoehe)) / 2;

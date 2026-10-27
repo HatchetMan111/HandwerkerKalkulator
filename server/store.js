@@ -26,15 +26,30 @@ export function createStore(dataDir) {
     }
   }
 
-  function write(name, value) {
-    const run = async () => {
-      const tmp = `${file(name)}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify(value, null, 2) + '\n', { mode: 0o640 });
-      await fs.rename(tmp, file(name));
-    };
-    queue = queue.then(run, run);
-    return queue;
+  async function writeNow(name, value) {
+    const tmp = `${file(name)}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(value, null, 2) + '\n', { mode: 0o640 });
+    await fs.rename(tmp, file(name));
   }
 
-  return { init, read, write };
+  function enqueue(task) {
+    const run = queue.then(task, task);
+    queue = run.then(() => {}, () => {});
+    return run;
+  }
+
+  function write(name, value) {
+    return enqueue(() => writeNow(name, value));
+  }
+
+  function mutate(name, fallback, updater) {
+    return enqueue(async () => {
+      const current = await read(name, fallback);
+      const next = await updater(current);
+      await writeNow(name, next);
+      return next;
+    });
+  }
+
+  return { init, read, write, mutate };
 }
