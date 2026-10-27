@@ -1076,6 +1076,10 @@ details[open] > summary.panel__head::after {
   color: var(--danger);
 }
 
+.save-status[data-type="warning"] {
+  color: var(--warning);
+}
+
 .save-status a {
   color: inherit;
   font-weight: 800;

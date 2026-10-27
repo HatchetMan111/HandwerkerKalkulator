@@ -63,6 +63,56 @@ function normaliseSettings(raw) {
 
 let appSettings = normaliseSettings({});
 
+const CACHE_PREFIX = 'hk_cache:';
+
+function readCachedData(key) {
+  try {
+    const raw = localStorage.getItem(`${CACHE_PREFIX}${key}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedData(key, value) {
+  try {
+    localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(value));
+  } catch {
+    // Der lokale Speicher kann gesperrt sein.
+  }
+}
+
+function isOfflineError(err) {
+  return err instanceof TypeError || err?.status === 0 || err?.status >= 500;
+}
+
+async function loadCached(route, key, fallback) {
+  try {
+    const data = await api.get(route);
+    writeCachedData(key, data);
+    return data;
+  } catch (err) {
+    const cached = readCachedData(key);
+    if (cached !== null) return cached;
+    if (fallback !== undefined) return fallback;
+    throw err;
+  }
+}
+
+function rememberJob(job) {
+  if (!job?.id) return;
+  const jobs = readCachedData('jobs');
+  if (!Array.isArray(jobs)) return;
+  const next = jobs.filter((entry) => entry.id !== job.id);
+  next.unshift(job);
+  writeCachedData('jobs', next);
+}
+
+function cachedJob(id) {
+  const jobs = readCachedData('jobs');
+  return Array.isArray(jobs) ? jobs.find((job) => job.id === id) || null : null;
+}
+
 function applyTheme(theme) {
   const value = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
   if (value === 'system') delete document.documentElement.dataset.theme;
@@ -147,7 +197,7 @@ async function renderHome(token) {
       </div>
     </section>`;
 
-  const trades = await api.get('/api/trades');
+  const trades = await loadCached('/api/trades', 'trades');
   if (token !== renderToken) return;
 
   const grouped = new Map(GROUPS.map((group) => [group, []]));
@@ -870,7 +920,7 @@ async function renderVorgaenge(token) {
     <p class="job-feedback" id="job-feedback" role="status"></p>
     <div id="job-list" aria-live="polite"><p class="muted">Vorgänge werden geladen …</p></div>`;
 
-  const jobs = await api.get('/api/jobs');
+  const jobs = await loadCached('/api/jobs', 'jobs');
   if (token !== renderToken) return;
 
   const container = document.getElementById('job-list');
@@ -1318,9 +1368,9 @@ function resizeImage(file) {
 
 async function renderKalkulation(packId, token, job = null) {
   const [packs, presets, pricelists] = await Promise.all([
-    api.get('/api/trades'),
-    api.get('/api/presets').catch(() => []),
-    api.get('/api/pricelists').catch(() => []),
+    loadCached('/api/trades', 'trades'),
+    loadCached('/api/presets', 'presets', []),
+    loadCached('/api/pricelists', 'pricelists', []),
   ]);
   if (token !== renderToken) return;
   const pack = packs.find((entry) => entry.id === packId);
@@ -1448,8 +1498,8 @@ async function renderKalkulation(packId, token, job = null) {
     saveStatus.dataset.type = type;
   };
 
-  const persistDraft = () => {
-    if (!hasInteracted || appSettings.autosave === false) return;
+  const persistDraft = (force = false) => {
+    if (!force && (!hasInteracted || appSettings.autosave === false)) return;
     writeDraft({
       packId: pack.id,
       jobId: currentJob?.id || null,
@@ -1704,6 +1754,7 @@ async function renderKalkulation(packId, token, job = null) {
         : await api.post('/api/jobs', payload);
       if (token !== renderToken) return null;
       currentJob = saved;
+      rememberJob(saved);
       clearDraft();
       saveButton.textContent = 'Aktualisieren';
       updatePrintButton();
@@ -1716,6 +1767,12 @@ async function renderKalkulation(packId, token, job = null) {
       setActiveNav(`/vorgang/${saved.id}`);
       return saved;
     } catch (err) {
+      if (isOfflineError(err)) {
+        hasInteracted = true;
+        persistDraft(true);
+        setSaveStatus('Offline – der Entwurf wurde lokal gesichert. Sobald die Verbindung wieder da ist, erneut speichern.', 'warning');
+        return null;
+      }
       setSaveStatus(err.message || 'Der Vorgang konnte nicht gespeichert werden.', 'error');
       return null;
     } finally {
@@ -1751,7 +1808,7 @@ async function renderPreislisten(token) {
       <section class="panel" data-pl-list><p class="muted">Preislisten werden geladen …</p></section>
     </div>`;
 
-  let lists = await api.get('/api/pricelists');
+  let lists = await loadCached('/api/pricelists', 'pricelists', []);
   if (token !== renderToken) return;
   if (!Array.isArray(lists)) lists = [];
   let editingId = null;
@@ -1857,6 +1914,7 @@ async function renderPreislisten(token) {
         await api.put('/api/pricelists', next);
         if (token !== renderToken) return;
         lists = await api.get('/api/pricelists');
+        writeCachedData('pricelists', lists);
         editingId = saved.id;
         renderEditor();
         renderList();
@@ -1898,6 +1956,7 @@ async function renderPreislisten(token) {
           await api.put('/api/pricelists', next);
           if (token !== renderToken) return;
           lists = await api.get('/api/pricelists');
+          writeCachedData('pricelists', lists);
           if (editingId === list.id) editingId = null;
           renderEditor();
           renderList();
@@ -1960,7 +2019,7 @@ async function renderVorlagen(token) {
       <section class="panel" data-preset-list><p class="muted">Vorlagen werden geladen …</p></section>
     </div>`;
 
-  let presets = await api.get('/api/presets');
+  let presets = await loadCached('/api/presets', 'presets', []);
   if (token !== renderToken) return;
   if (!Array.isArray(presets)) presets = [];
   let editingId = null;
@@ -2042,6 +2101,7 @@ async function renderVorlagen(token) {
         await api.put('/api/presets', next);
         if (token !== renderToken) return;
         presets = await api.get('/api/presets');
+        writeCachedData('presets', presets);
         editingId = saved.id;
         renderEditor();
         renderList();
@@ -2095,6 +2155,7 @@ async function renderVorlagen(token) {
           await api.put('/api/presets', next);
           if (token !== renderToken) return;
           presets = await api.get('/api/presets');
+          writeCachedData('presets', presets);
           if (editingId === preset.id) editingId = null;
           renderEditor();
           renderList();
@@ -2132,7 +2193,7 @@ function applyDisplaySettings(settings) {
 }
 
 async function renderEinstellungen(token) {
-  let settings = normaliseSettings(await api.get('/api/settings'));
+  let settings = normaliseSettings(await loadCached('/api/settings', 'settings', {}));
   if (token !== renderToken) return;
   applyDisplaySettings(settings);
 
@@ -2245,6 +2306,7 @@ async function renderEinstellungen(token) {
       if (token !== renderToken) return;
       settings = normaliseSettings(saved);
       appSettings = settings;
+      writeCachedData('settings', settings);
       applyDisplaySettings(settings);
       setFeedback('Einstellungen gespeichert.', 'success');
     } catch (err) {
@@ -2369,6 +2431,18 @@ async function router() {
             placeholder('Vorgang nicht gefunden', 'Dieser Vorgang existiert nicht oder wurde gelöscht.');
             return;
           }
+          if (isOfflineError(err)) {
+            const cached = cachedJob(id);
+            const draft = readDraft();
+            if (cached?.gewerkId) {
+              await renderKalkulation(cached.gewerkId, token, cached);
+              return;
+            }
+            if (draft?.jobId === id && draft.packId) {
+              await renderKalkulation(draft.packId, token, { id, gewerkId: draft.packId });
+              return;
+            }
+          }
           throw err;
         }
         if (token !== renderToken) return;
@@ -2396,8 +2470,15 @@ async function router() {
 }
 
 window.addEventListener('hashchange', router);
-api.get('/api/settings').then((settings) => {
+loadCached('/api/settings', 'settings', {}).then((settings) => {
   appSettings = normaliseSettings(settings);
   applyDisplaySettings(appSettings);
 }).catch(() => {});
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Ohne Service Worker bleibt die App online nutzbar.
+    });
+  });
+}
 router();
