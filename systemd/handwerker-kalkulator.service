@@ -12,7 +12,7 @@ WorkingDirectory=/opt/handwerker-kalkulator
 Environment=NODE_ENV=production
 Environment=PORT=8090
 Environment=DATA_DIR=/var/lib/handwerker-kalkulator
-ExecStart=/opt/node/bin/node /opt/handwerker-kalkulator/server/server.js
+ExecStart=/opt/node/bin/node --openssl-config=/opt/handwerker-kalkulator/openssl.cnf /opt/handwerker-kalkulator/server/server.js
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

@@ -344,6 +344,30 @@ pct exec "$CT_ID" -- bash -c '
   chown -R root:handwerker /opt/handwerker-kalkulator
   find /opt/handwerker-kalkulator -type d -exec chmod 755 {} +
   find /opt/handwerker-kalkulator -type f -exec chmod 644 {} +
+
+  # OpenSSL-Konfiguration fuer den Dienst-User lesbar bereitstellen.
+  # Node liest sonst /etc/ssl/openssl.cnf, das in manchen Templates fuer
+  # nicht-root-User nicht lesbar ist (Fehler: BIO_new_file: Permission denied).
+  if [[ -r /etc/ssl/openssl.cnf ]]; then
+    cp -L /etc/ssl/openssl.cnf /opt/handwerker-kalkulator/openssl.cnf
+  fi
+  if [[ ! -s /opt/handwerker-kalkulator/openssl.cnf ]]; then
+    printf "%s\n" \
+      "openssl_conf = default_conf" \
+      "" \
+      "[default_conf]" \
+      "ssl_conf = ssl_sect" \
+      "" \
+      "[ssl_sect]" \
+      "system_default = system_default_sect" \
+      "" \
+      "[system_default_sect]" \
+      "MinProtocol = TLSv1.2" \
+      "CipherString = DEFAULT@SECLEVEL=2" \
+      > /opt/handwerker-kalkulator/openssl.cnf
+  fi
+  chown root:handwerker /opt/handwerker-kalkulator/openssl.cnf
+  chmod 644 /opt/handwerker-kalkulator/openssl.cnf
 '
 msg_ok "App-Quelle bereit: ${APP_DIR}"
 
@@ -371,7 +395,7 @@ WorkingDirectory=${APP_DIR}
 Environment=NODE_ENV=production
 Environment=PORT=${APP_PORT}
 Environment=DATA_DIR=${DATA_DIR}
-ExecStart=/opt/node/bin/node ${APP_DIR}/server/server.js
+ExecStart=/opt/node/bin/node --openssl-config=${APP_DIR}/openssl.cnf ${APP_DIR}/server/server.js
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
