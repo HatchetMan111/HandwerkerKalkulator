@@ -313,6 +313,7 @@ pct exec "$CT_ID" -- bash -c '
   rm -rf /opt/node
   mkdir -p /opt/node
   tar -xzf /tmp/handwerker-kalkulator-node.tar.gz -C /opt/node --strip-components=1
+  chown -R root:root /opt/node
   chmod 755 /opt/node
   chmod -R a+rX /opt/node
   chmod 755 /opt/node/bin/node
