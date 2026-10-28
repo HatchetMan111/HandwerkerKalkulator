@@ -309,11 +309,14 @@ pct exec "$CT_ID" -- tar --version >/dev/null 2>&1 \
 
 pct exec "$CT_ID" -- bash -c '
   set -euo pipefail
+  umask 022
   rm -rf /opt/node
   mkdir -p /opt/node
   tar -xzf /tmp/handwerker-kalkulator-node.tar.gz -C /opt/node --strip-components=1
+  chmod 755 /opt/node
+  chmod -R a+rX /opt/node
+  chmod 755 /opt/node/bin/node
   ln -sfn /opt/node/bin/node /usr/bin/node
-  chmod +x /opt/node/bin/node
   rm -f /tmp/handwerker-kalkulator-node.tar.gz
   node --version
 '
@@ -330,6 +333,7 @@ pct exec "$CT_ID" -- bash -c '
 
 pct exec "$CT_ID" -- bash -c '
   set -euo pipefail
+  umask 022
   rm -rf /opt/handwerker-kalkulator
   mkdir -p /opt/handwerker-kalkulator
   tar -xzf /tmp/handwerker-kalkulator-src.tar.gz -C /opt/handwerker-kalkulator --strip-components=1
@@ -387,7 +391,13 @@ msg_ok "Service ${APP} aktiviert und (neu) gestartet."
 # ---------------------------------------------------------------------------
 msg_info "Verifiziere Installation ..."
 pct exec "$CT_ID" -- systemctl is-active --quiet "$APP" \
-  || { msg_error "Service ${APP} ist nicht active."; pct exec "$CT_ID" -- systemctl status "$APP" --no-pager || true; exit 1; }
+  || {
+    msg_error "Service ${APP} ist nicht active."
+    pct exec "$CT_ID" -- systemctl status "$APP" --no-pager || true
+    pct exec "$CT_ID" -- journalctl -u "$APP" --no-pager -n 50 || true
+    pct exec "$CT_ID" -- bash -c 'ls -ld /opt /opt/node /opt/node/bin; ls -l /opt/node/bin/node; id handwerker; su -s /bin/sh handwerker -c "/opt/node/bin/node --version"' || true
+    exit 1
+  }
 
 HEALTH_CODE="000"
 ROOT_CODE="000"
