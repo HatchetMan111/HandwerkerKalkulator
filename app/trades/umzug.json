@@ -1,7 +1,7 @@
 {
   "id": "umzug",
   "name": "Umzug & Transport",
-  "gruppe": "Ausbau & Hochbau",
+  "gruppe": "Bau & Außen",
   "icon": "lkw",
   "beschreibung": "Umzugsvolumen, LKW-Ladungen und Tragezeit kalkulieren.",
   "eingaben": [

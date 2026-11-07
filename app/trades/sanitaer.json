@@ -1,0 +1,24 @@
+{
+  "id": "sanitaer",
+  "name": "Sanitär & Heizung",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "rohr",
+  "beschreibung": "Sanitärpunkte, Rohrleitung, Heizkörper und Montagezeit kalkulieren.",
+  "eingaben": [
+    {"id": "punkte", "label": "Sanitärpunkte (Badewanne, Dusche, WC, Waschtisch …)", "art": "anzahl", "einheit": "Stk", "standard": 0},
+    {"id": "heizkoerper", "label": "Heizkörper", "art": "anzahl", "einheit": "Stk", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "rohrProPunkt", "label": "Leitungsweg pro Punkt", "einheit": "m", "standard": 8, "min": 2, "max": 30},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 8, "min": 0, "max": 30}
+  ],
+  "ressourcen": [
+    {"id": "rohre", "label": "Verbundrohr inkl. Fittinge", "art": "material", "einheit": "m", "formel": "punkte * rohrProPunkt * (1 + verschnitt / 100)", "preisProEinheit": 6.5},
+    {"id": "heizkoerperMaterial", "label": "Heizkörper inkl. Thermostat", "art": "material", "einheit": "Stk", "formel": "heizkoerper", "preisProEinheit": 210},
+    {"id": "montage", "label": "Montagematerial", "art": "pauschal", "einheit": "Pauschale", "preisProEinheit": 40},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "punkte * 2 + heizkoerper * 1.5", "preisProEinheit": 60}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 300, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Sanitär- & Heizungsarbeiten", "mengeLabel": "Sanitärpunkte", "mengeEinheit": "Stk", "mengeFormel": "punkte"}
+}

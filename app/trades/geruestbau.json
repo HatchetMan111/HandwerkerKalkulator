@@ -1,0 +1,22 @@
+{
+  "id": "geruestbau",
+  "name": "Gerüstbau",
+  "gruppe": "Bau & Außen",
+  "icon": "geruest",
+  "beschreibung": "Auf- und Abbau, Mietdauer und Transport für Fassadengerüste kalkulieren.",
+  "eingaben": [
+    {"id": "geruestflaeche", "label": "Gerüstfläche (Fassade)", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "dauer", "label": "Mietdauer", "art": "tage", "einheit": "Tage", "standard": 14, "min": 1, "max": 365},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "mieteProM2Tag", "label": "Miete pro m² und Tag", "einheit": "€/m²·Tag", "standard": 0.15, "min": 0.02, "max": 1}
+  ],
+  "ressourcen": [
+    {"id": "aufbau", "label": "Auf- und Abbau", "art": "material", "einheit": "m²", "formel": "geruestflaeche", "preisProEinheit": 14},
+    {"id": "miete", "label": "Mietzeit", "art": "material", "einheit": "Tage·m²", "formel": "geruestflaeche * dauer * mieteProM2Tag", "preisProEinheit": 1},
+    {"id": "transport", "label": "Transport", "art": "transport", "einheit": "Fahrten", "volumenFormel": "geruestflaeche * 0.04", "gewichtFormel": "geruestflaeche * 0.015", "volumenProFahrt": 8, "gewichtProFahrt": 5, "preisProFahrt": 150}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 350, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Gerüstbau", "mengeLabel": "Gerüstfläche", "mengeEinheit": "m²", "mengeFormel": "geruestflaeche"}
+}

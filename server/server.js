@@ -4,9 +4,12 @@ import { constants } from 'node:fs';
 import { readFile, writeFile, unlink, mkdir, rm, access } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { loadPacks } from './trades.js';
 import { createStore } from './store.js';
 import { naechsteNummer } from './numbering.js';
+
+const APP_VERSION = process.env.APP_VERSION || createRequire(import.meta.url)('../package.json').version;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -211,8 +214,13 @@ export function createServer({ dataDir, appDir, tradesDir }) {
       const decimals = Number(settings.dezimalstellen);
       if (!Number.isInteger(decimals) || decimals < 0 || decimals > 4) badRequest('Dezimalstellen müssen 0 bis 4 sein', 'settings.dezimalstellen');
     }
-    if (settings.zahlungszielTage !== undefined && (!Number.isFinite(Number(settings.zahlungszielTage)) || Number(settings.zahlungszielTage) < 0)) {
-      badRequest('Zahlungsziel darf nicht negativ sein', 'settings.zahlungszielTage');
+    if (settings.zahlungszielTage !== undefined && (!Number.isInteger(Number(settings.zahlungszielTage)) || Number(settings.zahlungszielTage) < 0)) {
+      badRequest('Zahlungsziel muss eine nicht negative, ganze Zahl von Tagen sein', 'settings.zahlungszielTage');
+    }
+    for (const key of ['angebotsPrefix', 'rechnungsPrefix']) {
+      if (settings[key] !== undefined && (typeof settings[key] !== 'string' || settings[key].length > 8)) {
+        badRequest(`${key} muss ein kurzer Text sein`, `settings.${key}`);
+      }
     }
     return settings;
   }
@@ -302,7 +310,7 @@ export function createServer({ dataDir, appDir, tradesDir }) {
         }
         send(res, dataWritable ? 200 : 503, {
           ok: dataWritable,
-          version: process.env.APP_VERSION || '1.0.0',
+          version: APP_VERSION,
           uptime: Math.floor((Date.now() - startedAt) / 1000),
           dataWritable,
           ...(fehler ? { fehler } : {}),
@@ -310,7 +318,7 @@ export function createServer({ dataDir, appDir, tradesDir }) {
         return;
       }
       if (url.pathname === '/api/version') {
-        send(res, 200, { version: process.env.APP_VERSION || '1.0.0', schema: 1 });
+        send(res, 200, { version: APP_VERSION, schema: 1 });
         return;
       }
       if (url.pathname === '/api/trades' && req.method === 'GET') {

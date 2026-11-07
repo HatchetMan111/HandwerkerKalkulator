@@ -114,7 +114,7 @@ export function evaluateFormula(expr, scope = {}) {
 
 const roundTo = (value, decimals) => Math.round(value * 10 ** decimals) / 10 ** decimals;
 
-function resourceLine(resource, scope) {
+function resourceLine(resource, scope, hinweise) {
   const preis = Number(resource.preisProEinheit ?? resource.preisProFahrt ?? resource.preisProContainer ?? resource.preisProPalette ?? resource.preisProSack ?? 0);
   if (resource.art === 'material') {
     const roh = evaluateFormula(resource.formel, scope);
@@ -124,25 +124,42 @@ function resourceLine(resource, scope) {
   if (resource.art === 'transport') {
     const volumen = evaluateFormula(resource.volumenFormel, scope);
     const gewicht = resource.gewichtFormel ? evaluateFormula(resource.gewichtFormel, scope) : 0;
-    const nachVolumen = resource.volumenProFahrt ? Math.ceil(volumen / resource.volumenProFahrt) : 0;
-    const nachGewicht = resource.gewichtProFahrt ? Math.ceil(gewicht / resource.gewichtProFahrt) : 0;
-    const menge = Math.max(nachVolumen, nachGewicht, volumen > 0 || gewicht > 0 ? 1 : 0);
+    const volumenProFahrt = Number(resource.volumenProFahrt) > 0 ? Number(resource.volumenProFahrt) : 0;
+    const gewichtProFahrt = Number(resource.gewichtProFahrt) > 0 ? Number(resource.gewichtProFahrt) : 0;
+    const nachVolumen = volumenProFahrt ? Math.ceil(volumen / volumenProFahrt) : 0;
+    const nachGewicht = gewichtProFahrt ? Math.ceil(gewicht / gewichtProFahrt) : 0;
+    if ((volumen > 0 || gewicht > 0) && !volumenProFahrt && !gewichtProFahrt) {
+      hinweise.push(`Transport „${resource.label || resource.id}“: keine gültige Ladegrenze hinterlegt – keine Fahrten kalkuliert.`);
+    }
+    const menge = Math.max(nachVolumen, nachGewicht);
     return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${volumen} m³ / ${gewicht} t → ${menge} Fahrten` };
   }
   if (resource.art === 'container') {
     const volumen = evaluateFormula(resource.volumenFormel, scope);
-    const menge = volumen > 0 ? Math.ceil(volumen / resource.volumenProContainer) : 0;
-    return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${volumen} m³ / ${resource.volumenProContainer} m³ = ${menge} Mulden` };
+    const proContainer = Number(resource.volumenProContainer) > 0 ? Number(resource.volumenProContainer) : 0;
+    const menge = proContainer && volumen > 0 ? Math.ceil(volumen / proContainer) : 0;
+    if (volumen > 0 && !proContainer) {
+      hinweise.push(`Container „${resource.label || resource.id}“: keine gültige Containergröße hinterlegt – keine Mulde kalkuliert.`);
+    }
+    return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${volumen} m³ / ${proContainer || resource.volumenProContainer} m³ = ${menge} Mulden` };
   }
   if (resource.art === 'palette') {
     const stueck = evaluateFormula(resource.stueckFormel, scope);
-    const menge = stueck > 0 ? Math.ceil(stueck / resource.stueckProPalette) : 0;
-    return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${stueck} Stk / ${resource.stueckProPalette} = ${menge} Paletten` };
+    const proPalette = Number(resource.stueckProPalette) > 0 ? Number(resource.stueckProPalette) : 0;
+    const menge = proPalette && stueck > 0 ? Math.ceil(stueck / proPalette) : 0;
+    if (stueck > 0 && !proPalette) {
+      hinweise.push(`Palette „${resource.label || resource.id}“: keine gültige Paketgröße hinterlegt – keine Palette kalkuliert.`);
+    }
+    return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${stueck} Stk / ${proPalette || resource.stueckProPalette} = ${menge} Paletten` };
   }
   if (resource.art === 'sack') {
     const kg = evaluateFormula(resource.gewichtFormel, scope);
-    const menge = kg > 0 ? Math.ceil(kg / resource.kgProSack) : 0;
-    return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${kg} kg / ${resource.kgProSack} kg = ${menge} Säcke` };
+    const proSack = Number(resource.kgProSack) > 0 ? Number(resource.kgProSack) : 0;
+    const menge = proSack && kg > 0 ? Math.ceil(kg / proSack) : 0;
+    if (kg > 0 && !proSack) {
+      hinweise.push(`Sack „${resource.label || resource.id}“: keine gültige Sackgröße hinterlegt – kein Sack kalkuliert.`);
+    }
+    return { ...resource, menge, einzelpreis: preis, gesamt: roundTo(menge * preis, 2), herleitung: `${kg} kg / ${proSack || resource.kgProSack} kg = ${menge} Säcke` };
   }
   if (resource.art === 'stunden') {
     const roh = evaluateFormula(resource.formel, scope);
@@ -163,18 +180,24 @@ export function calculate(pack, state = {}) {
   for (const factor of pack.faktoren || []) {
     if (!(factor.id in scope)) scope[factor.id] = factor.standard ?? 0;
   }
-  const positionen = (pack.ressourcen || []).map((r) => resourceLine(r, scope));
+  const hinweise = [];
+  const positionen = (pack.ressourcen || []).map((r) => resourceLine(r, scope, hinweise));
   const zwischensumme = roundTo(positionen.reduce((sum, p) => sum + p.gesamt, 0), 2);
   const preise = { ...(pack.preise || {}), ...(state.preise || {}) };
   const km = Number(state.eingaben?.anfahrtKm ?? 0);
   const anfahrt = preise.anfahrt ? roundTo(km * Number(preise.anfahrt.preisProKm || 0) * (preise.anfahrt.hinUndZurueck ? 2 : 1), 2) : roundTo(Number(preise.anfahrtPauschal || 0), 2);
+  if (km > 50) hinweise.push('Anfahrt über 50 km – Fahrtkosten und Zeitansatz im Betrieb prüfen.');
+  // Marge nur auf Material und Arbeit, nicht auf die Anfahrtspauschale.
   const margeSatz = Number(preise.marge || 0);
-  const marge = roundTo((zwischensumme + anfahrt) * margeSatz / 100, 2);
-  let netto = roundTo(zwischensumme + anfahrt + marge, 2);
+  const marge = roundTo(zwischensumme * margeSatz / 100, 2);
+  const rabattSatz = Number(preise.rabatt || 0);
+  const rabatt = roundTo((zwischensumme + anfahrt + marge) * rabattSatz / 100, 2);
+  let netto = roundTo(zwischensumme + anfahrt + marge - rabatt, 2);
   let mindestpreis = 0;
   if (preise.mindestpreis && netto < preise.mindestpreis) {
     mindestpreis = roundTo(preise.mindestpreis - netto, 2);
     positionen.push({ id: 'mindestpreis', label: 'Mindestpreis', menge: 1, einheit: 'Pauschale', einzelpreis: mindestpreis, gesamt: mindestpreis, herleitung: 'Auf Mindestpreis aufgerundet' });
+    hinweise.push('Der Mindestpreis des Gewerks wurde erreicht; ein Ausgleichsposten schließt die Differenz auf.');
     netto = roundTo(preise.mindestpreis, 2);
   }
   const mwstSatz = Number(preise.mwst ?? 19);
@@ -182,7 +205,7 @@ export function calculate(pack, state = {}) {
   const gesamt = roundTo(netto + mwst, 2);
   return {
     positionen,
-    summen: { zwischensumme, anfahrt, marge, mindestpreis, netto, mwst, gesamt, mwstSatz },
-    hinweise: [],
+    summen: { zwischensumme, anfahrt, marge, rabatt, mindestpreis, netto, mwst, gesamt, mwstSatz },
+    hinweise,
   };
 }

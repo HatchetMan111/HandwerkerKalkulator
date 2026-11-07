@@ -1,7 +1,7 @@
 {
   "id": "beton",
   "name": "Betonbau",
-  "gruppe": "Ausbau & Hochbau",
+  "gruppe": "Bau & Außen",
   "icon": "beton",
   "beschreibung": "Beton, Bewehrung, Fahrmischer und Arbeitszeit kalkulieren.",
   "eingaben": [

@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { calculate, FormulaError } from './engine.js';
+import { calculate, evaluateFormula, FormulaError } from './engine.js';
 import { formatNumber, formatCurrency, formatDate, parseGermanNumber, setDefaultDecimals } from './formats.js';
 import { rectangleArea, lShapeArea, triangleArea, polygonArea, parseSpokenMeasurement, convertArea, areaDecimals, roundArea } from './measure.js';
 
@@ -176,7 +176,7 @@ async function renderHome(token) {
         </div>
       </div>
       <aside class="hero__panel" aria-label="Überblick">
-        <div><strong>20</strong><span>Gewerke</span></div>
+        <div><strong data-trade-count>–</strong><span>Gewerke</span></div>
         <div><strong>7</strong><span>Ressourcentypen</span></div>
         <div><strong>1</strong><span>Datenquelle</span></div>
       </aside>
@@ -199,6 +199,8 @@ async function renderHome(token) {
 
   const trades = await loadCached('/api/trades', 'trades');
   if (token !== renderToken) return;
+  const tradeCount = document.querySelector('[data-trade-count]');
+  if (tradeCount) tradeCount.textContent = String(trades.length);
 
   const grouped = new Map(GROUPS.map((group) => [group, []]));
   for (const trade of trades) {
@@ -621,6 +623,7 @@ function createCalcState(pack) {
   }
   state.preise.mwst = appSettings.standardMwst ?? pack.preise?.mwst ?? 19;
   state.preise.marge = pack.preise?.marge ?? 0;
+  state.preise.rabatt = 0;
   if (pack.preise?.anfahrt && !('anfahrtKm' in state.eingaben)) state.eingaben.anfahrtKm = 0;
   return state;
 }
@@ -681,7 +684,7 @@ function showResultMessage(container, message) {
     </section>`;
 }
 
-function renderResult(container, result) {
+function renderResult(container, result, kopf = {}) {
   const rows = result.positionen.map((position) => {
     const decimals = Number.isInteger(position.menge) ? 0 : 2;
     return `
@@ -702,15 +705,16 @@ function renderResult(container, result) {
 
   const row = (label, value, className = '') => `
     <div class="summary__row ${className}"><dt>${label}</dt><dd>${value}</dd></div>`;
+  const badge = [kopf.mengeText, `${result.positionen.length} Positionen`].filter(Boolean).join(' · ');
 
   container.innerHTML = `
     <section class="panel result-panel">
       <div class="result-head">
         <div>
           <p class="eyebrow">Ergebnis</p>
-          <h2>Kalkulation</h2>
+          <h2>${escapeHtml(kopf.titel || 'Kalkulation')}</h2>
         </div>
-        <span class="result-badge">${result.positionen.length} Positionen</span>
+        <span class="result-badge">${escapeHtml(badge || 'Keine Positionen')}</span>
       </div>
       <div class="table-wrap">
         <table class="position-table">
@@ -724,7 +728,8 @@ function renderResult(container, result) {
         ${row('Zwischensumme', formatCurrency(result.summen.zwischensumme))}
         ${row('Anfahrt', formatCurrency(result.summen.anfahrt))}
         ${row('Marge', formatCurrency(result.summen.marge))}
-        ${result.summen.mindestpreis > 0 ? row('Mindestpreis', formatCurrency(result.summen.mindestpreis)) : ''}
+        ${Number(result.summen.rabatt) > 0 ? row('Rabatt', `– ${formatCurrency(result.summen.rabatt)}`) : ''}
+        ${Number(result.summen.mindestpreis) > 0 ? row('Mindestpreis', formatCurrency(result.summen.mindestpreis)) : ''}
         ${row('Netto', formatCurrency(result.summen.netto))}
         ${row(`MwSt. (${formatNumber(result.summen.mwstSatz, 0)} %)`, formatCurrency(result.summen.mwst))}
         ${row('Gesamt', formatCurrency(result.summen.gesamt), 'summary__row--total')}
@@ -745,6 +750,8 @@ const STATUS_LABELS = {
   bezahlt: 'Bezahlt',
   storniert: 'Storniert',
 };
+// Diese Status drucken und nummerieren als Rechnung – nicht als Angebot.
+const INVOICE_STATUS = ['rechnung', 'abgeschlossen', 'bezahlt'];
 
 function statusLabel(status) {
   return STATUS_LABELS[status] || status || 'Entwurf';
@@ -1057,7 +1064,7 @@ async function renderVorgaenge(token) {
 }
 
 function printTitle(status) {
-  if (status === 'rechnung' || status === 'abgeschlossen') return 'Rechnung';
+  if (INVOICE_STATUS.includes(status)) return 'Rechnung';
   if (status === 'auftrag' || status === 'auftragsbestaetigung') return 'Auftragsbestätigung';
   return 'Angebot';
 }
@@ -1069,7 +1076,7 @@ function todayIso() {
 async function ensurePrintNumber(job) {
   const updates = {};
   const status = job.status || 'entwurf';
-  if (status === 'rechnung' || status === 'abgeschlossen') {
+  if (INVOICE_STATUS.includes(status)) {
     if (!job.rechnungNummer) {
       if (job.nummer) {
         updates.rechnungNummer = job.nummer;
@@ -1150,12 +1157,13 @@ function renderPrintView(job, settings, token) {
   const summaryRow = (label, value, total = false) => `
     <div class="print-summary__row${total ? ' print-summary__row--total' : ''}">
       <span>${escapeHtml(label)}</span>
-      <span>${formatCurrency(value)}</span>
+      <span>${formatCurrency(Number.isFinite(Number(value)) ? Number(value) : 0)}</span>
     </div>`;
   const summary = `
     ${summaryRow('Zwischensumme', summen.zwischensumme)}
     ${summaryRow('Anfahrt', summen.anfahrt)}
     ${summaryRow('Marge', summen.marge)}
+    ${Number(summen.rabatt) > 0 ? summaryRow('Rabatt', -Number(summen.rabatt)) : ''}
     ${Number(summen.mindestpreis) > 0 ? summaryRow('Mindestpreis', summen.mindestpreis) : ''}
     ${summaryRow('Netto', summen.netto)}
     ${summaryRow(`MwSt. (${formatNumber(mwstSatz, 0)} %)`, summen.mwst)}
@@ -1451,7 +1459,7 @@ async function renderKalkulation(packId, token, job = null) {
       </label>
       <div class="calc-actions__buttons">
         <button class="button button--primary" type="button" data-save-job>${currentJob ? 'Aktualisieren' : 'Speichern'}</button>
-        <button class="button button--ghost" type="button" data-print-job>${['rechnung', 'abgeschlossen'].includes(currentJob?.status) ? 'Rechnung drucken' : 'Angebot drucken'}</button>
+        <button class="button button--ghost" type="button" data-print-job>${INVOICE_STATUS.includes(currentJob?.status) ? 'Rechnung drucken' : 'Angebot drucken'}</button>
         <a class="button button--ghost" href="#/vorgaenge">Vorgangsliste</a>
       </div>
       <p class="save-status" data-save-status role="status"></p>
@@ -1486,6 +1494,7 @@ async function renderKalkulation(packId, token, job = null) {
           <div class="fields fields--three">
             ${renderField({ id: 'mwst', label: 'MwSt.', art: 'anzahl', einheit: '%' }, 'preise', state.preise.mwst, { min: 0, max: 100 })}
             ${renderField({ id: 'marge', label: 'Marge', art: 'anzahl', einheit: '%' }, 'preise', state.preise.marge, { min: 0, max: 200 })}
+            ${renderField({ id: 'rabatt', label: 'Rabatt', art: 'anzahl', einheit: '%' }, 'preise', state.preise.rabatt ?? 0, { min: 0, max: 100 })}
             ${hasAnfahrt ? renderField(anfahrtFeld, 'eingaben', state.eingaben.anfahrtKm, { min: 0 }) : ''}
           </div>
           ${anfahrtNote || mindestNote ? `<div class="price-notes">${anfahrtNote ? `<p>${escapeHtml(anfahrtNote)}</p>` : ''}${mindestNote ? `<p>${escapeHtml(mindestNote)}</p>` : ''}</div>` : ''}
@@ -1542,13 +1551,30 @@ async function renderKalkulation(packId, token, job = null) {
     });
   };
 
+  // Kopfzeile des Ergebnisses aus pack.ausgabe (Titel + Menge des Gewerks).
+  const ausgabeKopf = () => {
+    const ausgabe = pack.ausgabe || {};
+    const kopf = { titel: ausgabe.titel || 'Kalkulation', mengeText: '' };
+    if (ausgabe.mengeFormel) {
+      try {
+        const menge = evaluateFormula(ausgabe.mengeFormel, { ...state.eingaben, ...state.faktoren });
+        if (Number.isFinite(menge)) {
+          kopf.mengeText = `${ausgabe.mengeLabel || 'Menge'}: ${formatNumber(menge, Number.isInteger(menge) ? 0 : 2)} ${ausgabe.mengeEinheit || ''}`.trim();
+        }
+      } catch {
+        // Menge bleibt leer, das Ergebnis selbst rechnet weiter.
+      }
+    }
+    return kopf;
+  };
+
   const recalc = () => {
     if (!syncState(form, state)) {
       showResultMessage(result, 'Bitte korrigiere die markierten Felder.');
       return;
     }
     try {
-      renderResult(result, calculate(calcPack(), state));
+      renderResult(result, calculate(calcPack(), state), ausgabeKopf());
       persistDraft();
     } catch (err) {
       showResultMessage(result, err instanceof FormulaError ? err.message : 'Die Berechnung ist nicht möglich.');
@@ -1619,7 +1645,7 @@ async function renderKalkulation(packId, token, job = null) {
   const updatePrintButton = () => {
     if (!printButton) return;
     const status = currentJob?.status;
-    printButton.textContent = ['rechnung', 'abgeschlossen'].includes(status)
+    printButton.textContent = INVOICE_STATUS.includes(status)
       ? 'Rechnung drucken'
       : ['auftrag', 'auftragsbestaetigung'].includes(status) ? 'Auftragsbestätigung drucken' : 'Angebot drucken';
   };

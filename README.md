@@ -4,7 +4,7 @@ Ein lokaler Angebots- und Mengenrechner für Handwerksbetriebe – als schlanke
 Web-App im Proxmox-LXC. Keine Cloud, kein Konto, keine Datenbank: Jobs,
 Preislisten und Fotos bleiben auf dem eigenen Server.
 
-Die App rechnet Positionen für 20 Gewerke, speichert Vorgänge, erzeugt
+Die App rechnet Positionen für 25 Gewerke, speichert Vorgänge, erzeugt
 Angebote und Rechnungen im DIN-A4-Layout und funktioniert nach dem ersten
 Aufruf auch offline im Browser.
 
@@ -96,8 +96,9 @@ gedacht.
 
 Wichtige Funktionen:
 
-- 20 Gewerke mit eigenen Positionen, Einheiten und Formeln
+- 25 Gewerke mit eigenen Positionen, Einheiten und Formeln
 - Mengen- und Materialberechnung, Ressourcen-Overrides pro Vorgang
+- Marge, Rabatt, Mindestpreis und Anfahrt je Vorgang einstellbar
 - Kunden-, Objekt- und Notizfelder
 - Angebote und Rechnungen als DIN-A4-Druckansicht
 - fortlaufende Nummernkreise für Angebote und Rechnungen
@@ -109,11 +110,16 @@ Wichtige Funktionen:
 
 ### Gewerke
 
-3D-Druck, Abbruch & Entsorgung, Baumfällung & Grünpflege,
-Baustelleneinrichtung, Betonbau, Catering, Dachdecker, Erdbau & Aushub,
-Event & Vermietung, Fliesenleger, Fotografie, Garten- & Landschaftsbau,
-Landwirtschaft, Maler & Lackierer, Pflasterarbeiten, Reinigung,
-Tiefbau & Kanalbau, Trockenbau, Umzug & Transport, Zaunbau.
+Bau & Außen: Abbruch & Entsorgung, Baustelleneinrichtung, Baumfällung &
+Grünpflege, Betonbau, Erdbau & Aushub, Garten- & Landschaftsbau,
+Gerüstbau, Pflasterarbeiten, Tiefbau & Kanalbau, Umzug & Transport,
+Zaunbau, Zimmerer & Holzbau.
+
+Ausbau & Hochbau: Bodenleger, Dachdecker, Elektroinstallation,
+Fliesenleger, Maler & Lackierer, Sanitär & Heizung, Trockenbau.
+
+Dienstleistung & Sonstiges: 3D-Druck, Catering, Event & Vermietung,
+Fotografie, Landwirtschaft, Reinigung.
 
 ### Offline
 

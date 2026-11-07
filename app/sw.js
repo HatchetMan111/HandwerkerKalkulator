@@ -1,5 +1,5 @@
 // Bei Änderungen an gecachten App-Dateien VERSION erhöhen.
-const VERSION = 'hk-2026-10-27-3';
+const VERSION = 'hk-2026-11-07-2';
 const STATIC_CACHE = `${VERSION}-static`;
 const API_CACHE = `${VERSION}-api`;
 
@@ -23,21 +23,26 @@ const STATIC_ASSETS = [
   '/trades/baumfaellung.json',
   '/trades/baustelle.json',
   '/trades/beton.json',
+  '/trades/boden.json',
   '/trades/catering.json',
   '/trades/dachdecker.json',
+  '/trades/elektro.json',
   '/trades/erdbau.json',
   '/trades/event.json',
   '/trades/fliesenleger.json',
   '/trades/fotografie.json',
   '/trades/garten.json',
+  '/trades/geruestbau.json',
   '/trades/landwirtschaft.json',
   '/trades/maler.json',
   '/trades/pflaster.json',
   '/trades/reinigung.json',
+  '/trades/sanitaer.json',
   '/trades/tiefbau.json',
   '/trades/trockenbau.json',
   '/trades/umzug.json',
   '/trades/zaun.json',
+  '/trades/zimmerer.json',
 ];
 
 self.addEventListener('install', (event) => {

@@ -39,12 +39,13 @@ test('unbekannte Variablen und Null-Teiler werden gemeldet', async () => {
   assert.ok(validatePack(teiler).some((e) => /volumenProFahrt/.test(e)));
 });
 
-test('genau die 20 geplanten Gewerke sind vorhanden', async () => {
+test('genau die 25 geplanten Gewerke sind vorhanden', async () => {
   const packs = await loadPacks(path.resolve('app/trades'));
   const ids = packs.map((p) => p.id).sort();
   assert.deepEqual(ids, [
-    '3ddruck', 'abbruch', 'baumfaellung', 'baustelle', 'beton', 'catering', 'dachdecker',
-    'erdbau', 'event', 'fliesenleger', 'fotografie', 'garten', 'landwirtschaft', 'maler',
-    'pflaster', 'reinigung', 'tiefbau', 'trockenbau', 'umzug', 'zaun',
+    '3ddruck', 'abbruch', 'baumfaellung', 'baustelle', 'beton', 'boden', 'catering',
+    'dachdecker', 'elektro', 'erdbau', 'event', 'fliesenleger', 'fotografie', 'garten',
+    'geruestbau', 'landwirtschaft', 'maler', 'pflaster', 'reinigung', 'sanitaer',
+    'tiefbau', 'trockenbau', 'umzug', 'zaun', 'zimmerer',
   ]);
 });

@@ -1,0 +1,25 @@
+{
+  "id": "zimmerer",
+  "name": "Zimmerer & Holzbau",
+  "gruppe": "Bau & Außen",
+  "icon": "balken",
+  "beschreibung": "Dachlattung, Konstruktionsholz, Firstpfetten und Zimmerei-Stunden kalkulieren.",
+  "eingaben": [
+    {"id": "dachflaeche", "label": "Dachfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "firstlaenge", "label": "Firstlänge", "art": "laenge", "einheit": "m", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "lattenAbstand", "label": "Lattenabstand", "einheit": "m", "standard": 0.33, "min": 0.15, "max": 1},
+    {"id": "holzProM2", "label": "Konstruktionsholz", "einheit": "m³/m²", "standard": 0.035, "min": 0.01, "max": 0.1},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 10, "min": 0, "max": 30}
+  ],
+  "ressourcen": [
+    {"id": "lattung", "label": "Dachlattung", "art": "material", "einheit": "m", "formel": "dachflaeche / lattenAbstand * (1 + verschnitt / 100)", "preisProEinheit": 2.4},
+    {"id": "konstruktionsholz", "label": "Konstruktionsholz", "art": "material", "einheit": "m³", "formel": "dachflaeche * holzProM2 * (1 + verschnitt / 100)", "preisProEinheit": 560},
+    {"id": "pfetten", "label": "Firstpfetten", "art": "material", "einheit": "m", "formel": "firstlaenge * 2 * (1 + verschnitt / 100)", "preisProEinheit": 12},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "dachflaeche / 5 + firstlaenge * 0.5", "preisProEinheit": 55}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 500, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Zimmererarbeiten", "mengeLabel": "Dachfläche", "mengeEinheit": "m²", "mengeFormel": "dachflaeche"}
+}

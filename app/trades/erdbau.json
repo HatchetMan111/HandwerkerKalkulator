@@ -6,7 +6,7 @@
   "beschreibung": "Aushubmengen, Auflockerung und LKW-Fahrten kalkulieren.",
   "eingaben": [
     {"id": "flaeche", "label": "Aushubfläche", "art": "flaeche", "einheit": "m²", "standard": 0},
-    {"id": "tiefe", "label": "Aushubtiefe", "art": "volumen", "einheit": "m", "standard": 0},
+    {"id": "tiefe", "label": "Aushubtiefe", "art": "laenge", "einheit": "m", "standard": 0},
     {"id": "dichte", "label": "Bodendichte", "art": "anzahl", "einheit": "t/m³", "standard": 1.8, "min": 0.8, "max": 3},
     {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
   ],

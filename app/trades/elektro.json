@@ -1,0 +1,25 @@
+{
+  "id": "elektro",
+  "name": "Elektroinstallation",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "stecker",
+  "beschreibung": "Installationspunkte, Leitungsmaterial, Verteiler und Elektro-Stunden kalkulieren.",
+  "eingaben": [
+    {"id": "punkte", "label": "Installationspunkte (Steckdosen, Schalter, Leuchten)", "art": "anzahl", "einheit": "Stk", "standard": 0, "hilfe": "Jede Dose, jeder Schalter und jede Leuchte zählt ein Punkt."},
+    {"id": "verteiler", "label": "Verteiler / Unterverteilungen", "art": "anzahl", "einheit": "Stk", "standard": 1, "min": 0, "max": 20},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "kabelProPunkt", "label": "Leitungsweg pro Punkt", "einheit": "m", "standard": 12, "min": 2, "max": 60},
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 10, "min": 0, "max": 30}
+  ],
+  "ressourcen": [
+    {"id": "leitung", "label": "NYM-J-Leitung", "art": "material", "einheit": "m", "formel": "punkte * kabelProPunkt * (1 + verschnitt / 100)", "preisProEinheit": 1.45},
+    {"id": "dosen", "label": "Unterputzdosen", "art": "material", "einheit": "Stk", "formel": "punkte * (1 + verschnitt / 100)", "preisProEinheit": 0.85},
+    {"id": "schalter", "label": "Schalter- und Steckdosen-Sets", "art": "material", "einheit": "Stk", "formel": "punkte * (1 + verschnitt / 100)", "preisProEinheit": 6.5},
+    {"id": "verteilerMaterial", "label": "Verteiler inkl. Kasten", "art": "material", "einheit": "Stk", "formel": "verteiler", "preisProEinheit": 95},
+    {"id": "arbeit", "label": "Arbeitszeit", "art": "stunden", "einheit": "h", "formel": "punkte * 0.75 + verteiler * 2", "preisProEinheit": 58}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 250, "anfahrt": {"preisProKm": 0.9, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Elektroinstallation", "mengeLabel": "Installationspunkte", "mengeEinheit": "Stk", "mengeFormel": "punkte"}
+}

@@ -1,0 +1,23 @@
+{
+  "id": "boden",
+  "name": "Bodenleger",
+  "gruppe": "Ausbau & Hochbau",
+  "icon": "platte",
+  "beschreibung": "Bodenbelag, Dämmbahn, Sockelleisten und Verlegezeit kalkulieren.",
+  "eingaben": [
+    {"id": "flaeche", "label": "Zu belegende Fläche", "art": "flaeche", "einheit": "m²", "standard": 0},
+    {"id": "leistenLaenge", "label": "Sockelleisten", "art": "laenge", "einheit": "m", "standard": 0},
+    {"id": "anfahrtKm", "label": "Anfahrt (einfach)", "art": "anzahl", "einheit": "km", "standard": 0}
+  ],
+  "faktoren": [
+    {"id": "verschnitt", "label": "Verschnitt", "einheit": "%", "standard": 8, "min": 0, "max": 30}
+  ],
+  "ressourcen": [
+    {"id": "belag", "label": "Bodenbelag", "art": "material", "einheit": "m²", "formel": "flaeche * (1 + verschnitt / 100)", "preisProEinheit": 28},
+    {"id": "daemmbahn", "label": "Dämmbahn / Trittschall", "art": "material", "einheit": "m²", "formel": "flaeche * (1 + verschnitt / 100)", "preisProEinheit": 1.8},
+    {"id": "leisten", "label": "Sockelleisten inkl. Clips", "art": "material", "einheit": "m", "formel": "leistenLaenge * (1 + verschnitt / 100)", "preisProEinheit": 6.5},
+    {"id": "arbeit", "label": "Verlegezeit", "art": "stunden", "einheit": "h", "formel": "flaeche / 15 + leistenLaenge / 25", "preisProEinheit": 42}
+  ],
+  "preise": {"mwst": 19, "mindestpreis": 250, "anfahrt": {"preisProKm": 0.8, "hinUndZurueck": true}},
+  "ausgabe": {"titel": "Bodenlegearbeiten", "mengeLabel": "Fläche", "mengeEinheit": "m²", "mengeFormel": "flaeche"}
+}
